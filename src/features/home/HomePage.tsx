@@ -321,6 +321,10 @@ function buildApiUrl(path: string) {
   return REMINDER_API_BASE_URL ? `${REMINDER_API_BASE_URL}${path}` : path
 }
 
+function hasCompletedNotificationAgreement(agreement: string) {
+  return agreement === 'newAgreement' || agreement === 'alreadyAgreed'
+}
+
 export function HomePage() {
   const [searchParams] = useSearchParams()
   const [lastAppliedAt, setLastAppliedAt] = useState(() => getInitialLastAppliedAt())
@@ -384,6 +388,8 @@ export function HomePage() {
     ? { transform: 'translateX(-50%) translateY(1px) scale(1.08)' }
     : faceImageMiniStyle
   const displayCameraMessage = captureScenario?.cameraMessage ?? cameraMessage
+  const hasNotificationAgreement = hasCompletedNotificationAgreement(notificationAgreement)
+  const [hasStarted, setHasStarted] = useState(() => !NOTIFICATION_TEMPLATE_CODE || hasNotificationAgreement)
 
   useEffect(() => {
     if (!userKey) {
@@ -445,50 +451,20 @@ export function HomePage() {
       return
     }
 
-    const hasAgreement = notificationAgreement === 'newAgreement' || notificationAgreement === 'alreadyAgreed'
-
-    if (hasAgreement) {
+    if (hasNotificationAgreement) {
       setNotificationMessage('앱을 나가도 알림을 받을 수 있도록 동의가 연결되어 있어요.')
+      setHasStarted(true)
       return
     }
 
     if (!NOTIFICATION_TEMPLATE_CODE) {
       setNotificationMessage('알림 템플릿 코드가 아직 연결되지 않았어요.')
-      return
+      setHasStarted(true)
     }
-
-    const cleanup = requestNotificationAgreement({
-      options: {
-        templateCode: NOTIFICATION_TEMPLATE_CODE,
-      },
-      onEvent: ({ type }) => {
-        window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
-        setNotificationAgreement(type)
-
-        if (type === 'newAgreement') {
-          setNotificationMessage('알림 동의를 완료했어요. 이제 앱을 나가도 알림을 보낼 수 있습니다.')
-        } else if (type === 'alreadyAgreed') {
-          setNotificationMessage('이미 알림 동의가 되어 있어요.')
-        } else {
-          setNotificationMessage('알림 동의를 거부했어요. 앱을 나가면 알림을 보낼 수 없습니다.')
-        }
-
-        cleanup()
-      },
-      onError: (error) => {
-        console.error('알림 동의 요청에 실패했어요:', error)
-        setNotificationMessage('알림 동의 요청에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
-        cleanup()
-      },
-    })
-
-    return cleanup
-  }, [isCaptureMode, notificationAgreement])
+  }, [hasNotificationAgreement, isCaptureMode])
 
   useEffect(() => {
-    const hasAgreement = notificationAgreement === 'newAgreement' || notificationAgreement === 'alreadyAgreed'
-
-    if (!hasAgreement || !userKey) {
+    if (!hasNotificationAgreement || !userKey) {
       return
     }
 
@@ -529,7 +505,44 @@ export function HomePage() {
       })
 
     return () => controller.abort()
-  }, [lastAppliedAt, notificationAgreement, outdoorTime, userKey])
+  }, [hasNotificationAgreement, lastAppliedAt, notificationAgreement, outdoorTime, userKey])
+
+  function requestNotificationOnboarding() {
+    if (!NOTIFICATION_TEMPLATE_CODE) {
+      setNotificationMessage('알림 템플릿 코드가 아직 연결되지 않았어요.')
+      setHasStarted(true)
+      return
+    }
+
+    const cleanup = requestNotificationAgreement({
+      options: {
+        templateCode: NOTIFICATION_TEMPLATE_CODE,
+      },
+      onEvent: ({ type }) => {
+        window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
+        setNotificationAgreement(type)
+
+        if (type === 'newAgreement') {
+          setNotificationMessage('알림 동의를 완료했어요. 이제 앱을 나가도 알림을 보낼 수 있습니다.')
+          setHasStarted(true)
+        } else if (type === 'alreadyAgreed') {
+          setNotificationMessage('이미 알림 동의가 되어 있어요.')
+          setHasStarted(true)
+        } else {
+          setNotificationMessage('알림 동의를 거부했어요. 알림 없이 계속 사용할 수 있습니다.')
+        }
+
+        cleanup()
+      },
+      onError: (error) => {
+        console.error('알림 동의 요청에 실패했어요:', error)
+        setNotificationMessage('알림 동의 요청에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
+        cleanup()
+      },
+    })
+
+    return cleanup
+  }
 
   async function handleOpenCamera() {
     try {
@@ -909,6 +922,35 @@ export function HomePage() {
 
   return (
     <div className={isCaptureMode ? 'page-shell page-shell--capture' : 'page-shell'}>
+      {!isCaptureMode && !hasStarted && (
+        <section className="content-panel content-panel--primary">
+          <div className="toolbar-row">
+            <div>
+              <p className="content-panel__eyebrow">Before You Start</p>
+              <h3 className="content-panel__title">앱을 나간 뒤에도 알림 받을지 먼저 정해요</h3>
+            </div>
+            <span className="status-badge">
+              {notificationAgreement === 'agreementRejected' ? '건너뜀' : '시작 전'}
+            </span>
+          </div>
+
+          <div className="form-stack">
+            <p className="helper-text">
+              백그라운드 알림은 서비스 안에서 다시 묻지 않고, 시작 전에 한 번만 동의를 받습니다.
+            </p>
+            <p className="helper-text helper-text--tight">{notificationMessage}</p>
+            <button type="button" className="primary-action primary-action--blue" onClick={requestNotificationOnboarding}>
+              알림 동의하고 시작
+            </button>
+            <button type="button" className="primary-action" onClick={() => setHasStarted(true)}>
+              알림 없이 시작
+            </button>
+          </div>
+        </section>
+      )}
+
+      {(isCaptureMode || hasStarted) && (
+        <>
       <section className="hero-section">
         <p className="eyebrow">Summer Ping</p>
         <h2 className="hero-title">선크림을 발라요</h2>
@@ -1123,38 +1165,9 @@ export function HomePage() {
               변화가 빠르게 진행됩니다.
               </p>
           </div>
-
-          <div className="content-panel content-panel--nested">
-            <p className="content-panel__eyebrow">Message</p>
-            <h3 className="content-panel__title">서비스가 주는 핵심 메시지</h3>
-            <p className="helper-text">
-              선크림은 바르는 순간보다 다시 바르는 타이밍이 더 중요합니다. 사용자가 얼굴 이미지가 나빠지는
-              걸 직접 보게 만들어 습관 형성을 유도해야 합니다.
-            </p>
-          </div>
-
-          <div className="notification-panel">
-            <div className="toolbar-row">
-              <div>
-                <p className="content-panel__eyebrow">Notification</p>
-                <h3 className="content-panel__title">앱을 나가도 알림 받기</h3>
-              </div>
-              <span className="status-badge">
-                {notificationAgreement === 'newAgreement' || notificationAgreement === 'alreadyAgreed'
-                  ? '동의 완료'
-                  : notificationAgreement === 'agreementRejected'
-                    ? '동의 거부'
-                    : '동의 필요'}
-              </span>
-            </div>
-
-            <p className="helper-text">{notificationMessage}</p>
-            <p className="helper-text helper-text--tight">
-              알림 동의와 사용자 식별 정보는 앱 시작 시 내부적으로 연결되며, 실제 백그라운드/종료 상태 알림은
-              파트너 서버에서 스마트 발송 API를 호출해야 동작합니다.
-            </p>
-          </div>
         </section>
+      )}
+        </>
       )}
     </div>
   )
