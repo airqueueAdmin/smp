@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.server-data/
+mTLS/
+.idea/
+.granite/
+
+*.md
+*.ait
+
+img*.png
+screenshot-*.png
+submission-thumbnail.png
+
+.env
+.env.*

@@ -1,0 +1,30 @@
+{
+  "name": "summer-ping",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Apps in Toss mini app for summer outing preparation.",
+  "type": "module",
+  "scripts": {
+    "dev": "granite dev",
+    "dev:web": "vite",
+    "dev:server": "node server/smart-message-server.mjs",
+    "build": "ait build",
+    "build:web": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@apps-in-toss/web-bridge": "^2.10.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.0"
+  },
+  "devDependencies": {
+    "@apps-in-toss/cli": "^2.10.2",
+    "@apps-in-toss/web-framework": "^2.10.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0"
+  }
+}
