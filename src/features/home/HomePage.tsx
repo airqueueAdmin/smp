@@ -25,6 +25,7 @@ type CaptureScenario = {
 const LAST_APPLIED_AT_KEY = 'summer-ping:last-applied-at'
 const NOTIFICATION_AGREEMENT_KEY = 'summer-ping:notification-agreement'
 const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
+const ACCESS_TOKEN_STORAGE_KEY = 'summer-ping:access-token'
 const NOTIFICATION_TEMPLATE_CODE = import.meta.env.VITE_SMART_MESSAGE_TEMPLATE_CODE
 const REMINDER_API_BASE_URL =
   import.meta.env.VITE_REMINDER_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8787' : '')
@@ -305,6 +306,17 @@ function getInitialUserKey() {
   return window.localStorage.getItem(USER_KEY_STORAGE_KEY) ?? ''
 }
 
+function getInitialAccessToken(searchParams: URLSearchParams) {
+  const fromQuery = searchParams.get('accessToken')
+
+  if (fromQuery) {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, fromQuery)
+    return fromQuery
+  }
+
+  return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? ''
+}
+
 function buildApiUrl(path: string) {
   return REMINDER_API_BASE_URL ? `${REMINDER_API_BASE_URL}${path}` : path
 }
@@ -320,11 +332,11 @@ export function HomePage() {
   const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
-  const [accessToken, setAccessToken] = useState('')
   const [notificationMessage, setNotificationMessage] = useState(
     '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
   )
   const capture = searchParams.get('capture')
+  const [accessToken, setAccessToken] = useState(() => getInitialAccessToken(searchParams))
   const captureScenario = useMemo(() => getCaptureScenario(capture), [capture])
   const { hour, uv, temperature } = useMemo(() => resolveAutoConditions(), [])
   const now = useMemo(() => new Date(), [])
@@ -380,6 +392,98 @@ export function HomePage() {
 
     window.localStorage.setItem(USER_KEY_STORAGE_KEY, userKey)
   }, [userKey])
+
+  useEffect(() => {
+    if (!accessToken) {
+      return
+    }
+
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken)
+  }, [accessToken])
+
+  useEffect(() => {
+    if (isCaptureMode || userKey || !accessToken) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    fetch(buildApiUrl('/api/users/login-me'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        accessToken,
+      }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(result?.error ?? 'userKey 조회에 실패했어요.')
+        }
+
+        const nextUserKey = String(result.result.success.userKey)
+        setUserKey(nextUserKey)
+        setNotificationMessage('알림 발송에 필요한 사용자 정보를 연결했어요.')
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setNotificationMessage(error instanceof Error ? error.message : 'userKey 조회에 실패했어요.')
+      })
+
+    return () => controller.abort()
+  }, [accessToken, isCaptureMode, userKey])
+
+  useEffect(() => {
+    if (isCaptureMode) {
+      return
+    }
+
+    const hasAgreement = notificationAgreement === 'newAgreement' || notificationAgreement === 'alreadyAgreed'
+
+    if (hasAgreement) {
+      setNotificationMessage('앱을 나가도 알림을 받을 수 있도록 동의가 연결되어 있어요.')
+      return
+    }
+
+    if (!NOTIFICATION_TEMPLATE_CODE) {
+      setNotificationMessage('알림 템플릿 코드가 아직 연결되지 않았어요.')
+      return
+    }
+
+    const cleanup = requestNotificationAgreement({
+      options: {
+        templateCode: NOTIFICATION_TEMPLATE_CODE,
+      },
+      onEvent: ({ type }) => {
+        window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
+        setNotificationAgreement(type)
+
+        if (type === 'newAgreement') {
+          setNotificationMessage('알림 동의를 완료했어요. 이제 앱을 나가도 알림을 보낼 수 있습니다.')
+        } else if (type === 'alreadyAgreed') {
+          setNotificationMessage('이미 알림 동의가 되어 있어요.')
+        } else {
+          setNotificationMessage('알림 동의를 거부했어요. 앱을 나가면 알림을 보낼 수 없습니다.')
+        }
+
+        cleanup()
+      },
+      onError: (error) => {
+        console.error('알림 동의 요청에 실패했어요:', error)
+        setNotificationMessage('알림 동의 요청에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
+        cleanup()
+      },
+    })
+
+    return cleanup
+  }, [isCaptureMode, notificationAgreement])
 
   useEffect(() => {
     const hasAgreement = notificationAgreement === 'newAgreement' || notificationAgreement === 'alreadyAgreed'
@@ -467,72 +571,6 @@ export function HomePage() {
     window.localStorage.setItem(LAST_APPLIED_AT_KEY, nextAppliedAt)
     setLastAppliedAt(nextAppliedAt)
     setCameraMessage('선크림을 다시 발랐어요. 얼굴 상태를 바로 안전 단계로 되돌렸습니다.')
-  }
-
-  function handleNotificationAgreement() {
-    if (!NOTIFICATION_TEMPLATE_CODE) {
-      setNotificationMessage(
-        '알림 템플릿 코드가 아직 연결되지 않았어요. 콘솔에서 발급한 templateCode를 환경변수로 넣어야 합니다.',
-      )
-      return
-    }
-
-    const cleanup = requestNotificationAgreement({
-      options: {
-        templateCode: NOTIFICATION_TEMPLATE_CODE,
-      },
-      onEvent: ({ type }) => {
-        window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
-        setNotificationAgreement(type)
-
-        if (type === 'newAgreement') {
-          setNotificationMessage('알림 동의를 완료했어요. 이제 서버에서 기능성 메시지를 발송할 수 있습니다.')
-        } else if (type === 'alreadyAgreed') {
-          setNotificationMessage('이미 알림 동의가 되어 있어요. 서버 발송 조건만 연결하면 됩니다.')
-        } else {
-          setNotificationMessage('알림 동의를 거부했어요. 앱을 나간 뒤 알림을 보내려면 다시 동의가 필요합니다.')
-        }
-
-        cleanup()
-      },
-      onError: (error) => {
-        console.error('알림 동의 요청에 실패했어요:', error)
-        setNotificationMessage('알림 동의 요청에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
-        cleanup()
-      },
-    })
-  }
-
-  async function handleResolveUserKey() {
-    if (!accessToken) {
-      setNotificationMessage('Access Token을 입력해야 userKey를 조회할 수 있어요.')
-      return
-    }
-
-    try {
-      const response = await fetch(buildApiUrl('/api/users/login-me'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          accessToken,
-        }),
-      })
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result?.error ?? 'userKey 조회에 실패했어요.')
-      }
-
-      const nextUserKey = String(result.result.success.userKey)
-      setUserKey(nextUserKey)
-      setNotificationMessage(
-        `${result.result.success.name ?? '사용자'}님의 userKey를 불러왔어요. 이제 알림 예약과 실제 발송에 사용할 수 있습니다.`,
-      )
-    } catch (error) {
-      setNotificationMessage(error instanceof Error ? error.message : 'userKey 조회에 실패했어요.')
-    }
   }
 
   function renderFaceVisual(visualStage: SunscreenStage, options?: { mini?: boolean; showGuide?: boolean; label?: string }) {
@@ -1110,37 +1148,10 @@ export function HomePage() {
               </span>
             </div>
 
-            <button type="button" className="primary-action primary-action--blue" onClick={handleNotificationAgreement}>
-              알림 동의 요청하기
-            </button>
-
-            <label className="notification-userkey-field">
-              <span className="field-label">Access Token</span>
-              <input
-                className="select-field"
-                value={accessToken}
-                onChange={(event) => setAccessToken(event.target.value)}
-                placeholder="login-me 조회용 Access Token"
-              />
-            </label>
-
-            <button type="button" className="primary-action" onClick={handleResolveUserKey}>
-              userKey 불러오기
-            </button>
-
-            <label className="notification-userkey-field">
-              <span className="field-label">Toss userKey</span>
-              <input
-                className="select-field"
-                value={userKey}
-                onChange={(event) => setUserKey(event.target.value)}
-                placeholder="스마트 발송에 사용할 userKey"
-              />
-            </label>
-
             <p className="helper-text">{notificationMessage}</p>
             <p className="helper-text helper-text--tight">
-              실제 백그라운드/종료 상태 알림 발송은 파트너 서버에서 스마트 발송 API를 호출해야 동작합니다.
+              알림 동의와 사용자 식별 정보는 앱 시작 시 내부적으로 연결되며, 실제 백그라운드/종료 상태 알림은
+              파트너 서버에서 스마트 발송 API를 호출해야 동작합니다.
             </p>
           </div>
         </section>

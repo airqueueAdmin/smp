@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PORT = Number(process.env.SMART_MESSAGE_SERVER_PORT ?? '8787')
+const PORT = Number(process.env.PORT ?? process.env.SMART_MESSAGE_SERVER_PORT ?? '8787')
 const BASE_URL = process.env.APPS_IN_TOSS_BASE_URL ?? 'https://apps-in-toss-api.toss.im'
 const TEMPLATE_SET_CODE = process.env.SMART_MESSAGE_TEMPLATE_SET_CODE ?? ''
 const TEST_DEPLOYMENT_ID = process.env.SMART_MESSAGE_TEST_DEPLOYMENT_ID ?? ''
