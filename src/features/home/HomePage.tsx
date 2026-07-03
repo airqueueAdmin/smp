@@ -334,6 +334,9 @@ export function HomePage() {
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
   const [userName, setUserName] = useState(() => getInitialUserName())
+  const [userNameStatus, setUserNameStatus] = useState<'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided'>(
+    () => (getInitialUserName() ? 'decrypted' : 'idle'),
+  )
   const [notificationMessage, setNotificationMessage] = useState(
     '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
   )
@@ -443,7 +446,18 @@ export function HomePage() {
 
         const nextUserKey = String(result.user.userKey)
         const nextUserName = typeof result.user.name === 'string' ? result.user.name.trim() : ''
+        const nextUserNameStatus =
+          nextUserName
+            ? 'decrypted'
+            : result.user.hasEncryptedName
+              ? result.user.decryptionStatus === 'missing_key'
+                ? 'missing_key'
+                : result.user.decryptionStatus === 'failed'
+                  ? 'failed'
+                  : 'idle'
+              : 'not_provided'
         setUserKey(nextUserKey)
+        setUserNameStatus(nextUserNameStatus)
         if (nextUserName) {
           setUserName(nextUserName)
         }
@@ -972,6 +986,13 @@ export function HomePage() {
           {userName ? `${userName}님, ` : ''}
           얼굴 상태 변화를 직접 보여줘서, 선크림을 제때 다시 바르는 습관을 만들도록 돕는 서비스입니다.
         </p>
+        {!userName && userNameStatus !== 'idle' && (
+          <p className="helper-text helper-text--tight">
+            {userNameStatus === 'missing_key' && '이름 암호문은 받았지만 서버 복호화 키 설정을 아직 읽지 못했어요.'}
+            {userNameStatus === 'failed' && '이름 암호문은 받았지만 복호화에 실패했어요. 서버 키나 AAD 설정을 확인해 주세요.'}
+            {userNameStatus === 'not_provided' && '현재 로그인 응답에는 이름 정보가 포함되지 않았어요.'}
+          </p>
+        )}
 
         {!isCaptureMode && (
           <div className="hero-summary-row">
