@@ -1,5 +1,6 @@
 import {
   OpenCameraPermissionError,
+  getConsentedUserData,
   openCamera,
   requestNotificationAgreement,
 } from '@apps-in-toss/web-framework'
@@ -28,6 +29,7 @@ const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
 const USER_NAME_STORAGE_KEY = 'summer-ping:user-name'
 const ACCESS_TOKEN_STORAGE_KEY = 'summer-ping:access-token'
 const NOTIFICATION_TEMPLATE_CODE = import.meta.env.VITE_SMART_MESSAGE_TEMPLATE_CODE
+const USER_NAME_CONSENTED_DATA_KEY = import.meta.env.VITE_USER_NAME_CONSENTED_DATA_KEY
 const REMINDER_API_BASE_URL =
   import.meta.env.VITE_REMINDER_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8787' : '')
 const DEMO_FACE_IMAGE_URI = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
@@ -322,6 +324,15 @@ function hasCompletedNotificationAgreement(agreement: string) {
   return agreement === 'newAgreement' || agreement === 'alreadyAgreed'
 }
 
+function getUserInfoErrorCode(error: unknown) {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return ''
+  }
+
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : ''
+}
+
 export function HomePage() {
   const [searchParams] = useSearchParams()
   const [lastAppliedAt, setLastAppliedAt] = useState(() => getInitialLastAppliedAt())
@@ -334,9 +345,9 @@ export function HomePage() {
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
   const [userName, setUserName] = useState(() => getInitialUserName())
-  const [userNameStatus, setUserNameStatus] = useState<'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided'>(
-    () => (getInitialUserName() ? 'decrypted' : 'idle'),
-  )
+  const [userNameStatus, setUserNameStatus] = useState<
+    'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided' | 'not_configured' | 'declined' | 'unavailable'
+  >(() => (getInitialUserName() ? 'decrypted' : 'idle'))
   const [notificationMessage, setNotificationMessage] = useState(
     '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
   )
@@ -473,6 +484,68 @@ export function HomePage() {
 
     return () => controller.abort()
   }, [accessToken, isCaptureMode, userKey, userName])
+
+  useEffect(() => {
+    if (isCaptureMode || !hasStarted || userName) {
+      return
+    }
+
+    if (!USER_NAME_CONSENTED_DATA_KEY) {
+      setUserNameStatus((current) => (current === 'idle' ? 'not_configured' : current))
+      return
+    }
+
+    let cancelled = false
+
+    getConsentedUserData({
+      consentedUserDataKey: USER_NAME_CONSENTED_DATA_KEY,
+      shouldRequestAgreementWhenUserDeclined: true,
+    })
+      .then((data) => {
+        if (cancelled) {
+          return
+        }
+
+        const nextUserName = typeof data?.USER_NAME === 'string' ? data.USER_NAME.trim() : ''
+
+        if (nextUserName) {
+          setUserName(nextUserName)
+          setUserNameStatus('decrypted')
+          return
+        }
+
+        setUserNameStatus('not_provided')
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return
+        }
+
+        const code = getUserInfoErrorCode(error)
+
+        if (code === 'USER_DECLINED' || code === 'CANCELED') {
+          setUserNameStatus('declined')
+          return
+        }
+
+        if (code === 'TERMS_NOT_SET' || code === 'INVALID_REQUEST') {
+          setUserNameStatus('not_configured')
+          return
+        }
+
+        if (code === 'UNAVAILABLE') {
+          setUserNameStatus('unavailable')
+          return
+        }
+
+        console.error('사용자 이름 불러오기에 실패했어요:', error)
+        setUserNameStatus('failed')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasStarted, isCaptureMode, userName])
 
   useEffect(() => {
     if (isCaptureMode) {
@@ -991,6 +1064,9 @@ export function HomePage() {
             {userNameStatus === 'missing_key' && '이름 암호문은 받았지만 서버 복호화 키 설정을 아직 읽지 못했어요.'}
             {userNameStatus === 'failed' && '이름 암호문은 받았지만 복호화에 실패했어요. 서버 키나 AAD 설정을 확인해 주세요.'}
             {userNameStatus === 'not_provided' && '현재 로그인 응답에는 이름 정보가 포함되지 않았어요.'}
+            {userNameStatus === 'not_configured' && '사용자 정보 불러오기 설정이나 이름용 cud 키가 아직 연결되지 않았어요.'}
+            {userNameStatus === 'declined' && '이름 정보 제공 동의가 완료되지 않아 이름을 표시하지 못하고 있어요.'}
+            {userNameStatus === 'unavailable' && '지금은 토스에서 사용자 이름 정보를 불러올 수 없는 상태예요.'}
           </p>
         )}
 
