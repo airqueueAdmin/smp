@@ -418,7 +418,7 @@ export function HomePage() {
   }, [accessToken])
 
   useEffect(() => {
-    if (isCaptureMode || userKey || !accessToken) {
+    if (isCaptureMode || !accessToken || (userKey && userName)) {
       return
     }
 
@@ -458,7 +458,7 @@ export function HomePage() {
       })
 
     return () => controller.abort()
-  }, [accessToken, isCaptureMode, userKey])
+  }, [accessToken, isCaptureMode, userKey, userName])
 
   useEffect(() => {
     if (isCaptureMode) {
