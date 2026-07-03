@@ -25,6 +25,7 @@ type CaptureScenario = {
 const LAST_APPLIED_AT_KEY = 'summer-ping:last-applied-at'
 const NOTIFICATION_AGREEMENT_KEY = 'summer-ping:notification-agreement'
 const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
+const USER_NAME_STORAGE_KEY = 'summer-ping:user-name'
 const ACCESS_TOKEN_STORAGE_KEY = 'summer-ping:access-token'
 const NOTIFICATION_TEMPLATE_CODE = import.meta.env.VITE_SMART_MESSAGE_TEMPLATE_CODE
 const REMINDER_API_BASE_URL =
@@ -275,15 +276,7 @@ function getNextAction(stage: SunscreenStage, hour: number) {
 }
 
 function getInitialLastAppliedAt() {
-  const stored = window.localStorage.getItem(LAST_APPLIED_AT_KEY)
-
-  if (stored) {
-    return stored
-  }
-
-  const fallback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-  window.localStorage.setItem(LAST_APPLIED_AT_KEY, fallback)
-  return fallback
+  return window.localStorage.getItem(LAST_APPLIED_AT_KEY)
 }
 
 function formatDateTime(value: string) {
@@ -304,6 +297,10 @@ function getInitialNotificationAgreement() {
 
 function getInitialUserKey() {
   return window.localStorage.getItem(USER_KEY_STORAGE_KEY) ?? ''
+}
+
+function getInitialUserName() {
+  return window.localStorage.getItem(USER_NAME_STORAGE_KEY) ?? ''
 }
 
 function getInitialAccessToken(searchParams: URLSearchParams) {
@@ -336,6 +333,7 @@ export function HomePage() {
   const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
+  const [userName, setUserName] = useState(() => getInitialUserName())
   const [notificationMessage, setNotificationMessage] = useState(
     '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
   )
@@ -353,6 +351,10 @@ export function HomePage() {
   const isCaptureMode = capture !== null
 
   const lastAppliedMinutesAgo = useMemo(() => {
+    if (!lastAppliedAt) {
+      return 0
+    }
+
     const diffMs = now.getTime() - new Date(lastAppliedAt).getTime()
     return Math.max(0, Math.floor(diffMs / (1000 * 60)))
   }, [lastAppliedAt, now])
@@ -372,7 +374,7 @@ export function HomePage() {
   const uvLevelCopy = getUvLevelCopy(displayUv)
   const uvToneClass = getUvToneClass(displayUv)
   const displayLastAppliedAt = captureScenario?.lastAppliedAt ?? lastAppliedAt
-  const formattedLastAppliedAt = formatDateTime(displayLastAppliedAt)
+  const formattedLastAppliedAt = displayLastAppliedAt ? formatDateTime(displayLastAppliedAt) : ''
   const displayFaceImageUri = captureScenario ? DEMO_FACE_IMAGE_URI : capturedImageUri
   const hasFaceImage = Boolean(displayFaceImageUri)
   const faceImageStyle = {
@@ -398,6 +400,14 @@ export function HomePage() {
 
     window.localStorage.setItem(USER_KEY_STORAGE_KEY, userKey)
   }, [userKey])
+
+  useEffect(() => {
+    if (!userName) {
+      return
+    }
+
+    window.localStorage.setItem(USER_NAME_STORAGE_KEY, userName)
+  }, [userName])
 
   useEffect(() => {
     if (!accessToken) {
@@ -431,8 +441,12 @@ export function HomePage() {
           throw new Error(result?.error ?? 'userKey 조회에 실패했어요.')
         }
 
-        const nextUserKey = String(result.result.success.userKey)
+        const nextUserKey = String(result.user.userKey)
+        const nextUserName = typeof result.user.name === 'string' ? result.user.name.trim() : ''
         setUserKey(nextUserKey)
+        if (nextUserName) {
+          setUserName(nextUserName)
+        }
         setNotificationMessage('알림 발송에 필요한 사용자 정보를 연결했어요.')
       })
       .catch((error) => {
@@ -464,7 +478,7 @@ export function HomePage() {
   }, [hasNotificationAgreement, isCaptureMode])
 
   useEffect(() => {
-    if (!hasNotificationAgreement || !userKey) {
+    if (!hasNotificationAgreement || !userKey || !lastAppliedAt) {
       return
     }
 
@@ -955,6 +969,7 @@ export function HomePage() {
         <p className="eyebrow">Summer Ping</p>
         <h2 className="hero-title">선크림을 발라요</h2>
         <p className="hero-description">
+          {userName ? `${userName}님, ` : ''}
           얼굴 상태 변화를 직접 보여줘서, 선크림을 제때 다시 바르는 습관을 만들도록 돕는 서비스입니다.
         </p>
 
@@ -1124,7 +1139,12 @@ export function HomePage() {
           <div className="form-stack">
             <label>
               <span className="field-label">마지막으로 선크림 바른 시점</span>
-              <input className="select-field readonly-field" value={formattedLastAppliedAt} readOnly />
+              <input
+                className="select-field readonly-field"
+                value={formattedLastAppliedAt}
+                placeholder="아직 기록된 시점이 없어요"
+                readOnly
+              />
             </label>
 
             <label>

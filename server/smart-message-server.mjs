@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { createDecipheriv } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -15,9 +16,15 @@ const CERT_PEM = process.env.APPS_IN_TOSS_CERT_PEM ?? ''
 const KEY_PEM = process.env.APPS_IN_TOSS_KEY_PEM ?? ''
 const CERT_PEM_BASE64 = process.env.APPS_IN_TOSS_CERT_PEM_BASE64 ?? ''
 const KEY_PEM_BASE64 = process.env.APPS_IN_TOSS_KEY_PEM_BASE64 ?? ''
+const USER_INFO_DECRYPTION_KEY = process.env.APPS_IN_TOSS_USER_INFO_DECRYPTION_KEY ?? ''
+const USER_INFO_DECRYPTION_KEY_BASE64 = process.env.APPS_IN_TOSS_USER_INFO_DECRYPTION_KEY_BASE64 ?? ''
+const USER_INFO_AAD = process.env.APPS_IN_TOSS_USER_INFO_AAD ?? ''
+const USER_INFO_AAD_BASE64 = process.env.APPS_IN_TOSS_USER_INFO_AAD_BASE64 ?? ''
 const DEFAULT_REMINDER_MINUTES = Number(process.env.DEFAULT_REMINDER_MINUTES ?? '120')
 const STORE_DIR = resolve(__dirname, '..', '.server-data')
 const STORE_PATH = resolve(STORE_DIR, 'reminders.json')
+const AES_GCM_IV_LENGTH = 12
+const AES_GCM_TAG_LENGTH = 16
 
 function ensureStore() {
   if (!existsSync(STORE_DIR)) {
@@ -86,6 +93,14 @@ function decodeBase64(value) {
   return Buffer.from(value, 'base64').toString('utf8')
 }
 
+function decodeBase64ToBuffer(value) {
+  return Buffer.from(value, 'base64')
+}
+
+function normalizeBase64(value) {
+  return value.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '')
+}
+
 function loadTlsCredential(kind) {
   const isCert = kind === 'cert'
   const directPem = isCert ? CERT_PEM : KEY_PEM
@@ -113,6 +128,118 @@ function hasTlsCredentials() {
 
 function validateServerConfig() {
   return Boolean(TEMPLATE_SET_CODE && hasTlsCredentials())
+}
+
+function loadUserInfoDecryptionKey() {
+  if (USER_INFO_DECRYPTION_KEY_BASE64) {
+    return decodeBase64ToBuffer(USER_INFO_DECRYPTION_KEY_BASE64)
+  }
+
+  if (!USER_INFO_DECRYPTION_KEY) {
+    return null
+  }
+
+  if (/^[0-9a-fA-F]{64}$/.test(USER_INFO_DECRYPTION_KEY)) {
+    return Buffer.from(USER_INFO_DECRYPTION_KEY, 'hex')
+  }
+
+  const utf8Buffer = Buffer.from(USER_INFO_DECRYPTION_KEY, 'utf8')
+
+  if (utf8Buffer.length === 32) {
+    return utf8Buffer
+  }
+
+  try {
+    const decoded = decodeBase64ToBuffer(normalizeBase64(USER_INFO_DECRYPTION_KEY))
+
+    if (decoded.length === 32) {
+      return decoded
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function loadUserInfoAad() {
+  if (USER_INFO_AAD_BASE64) {
+    return decodeBase64ToBuffer(USER_INFO_AAD_BASE64)
+  }
+
+  if (!USER_INFO_AAD) {
+    return null
+  }
+
+  try {
+    return decodeBase64ToBuffer(normalizeBase64(USER_INFO_AAD))
+  } catch {
+    return Buffer.from(USER_INFO_AAD, 'utf8')
+  }
+}
+
+function decryptUserInfoField(value) {
+  if (!value || typeof value !== 'string') {
+    return null
+  }
+
+  const key = loadUserInfoDecryptionKey()
+  const aad = loadUserInfoAad()
+
+  if (!key || !aad) {
+    return null
+  }
+
+  const encrypted = decodeBase64ToBuffer(normalizeBase64(value))
+
+  if (encrypted.length <= AES_GCM_IV_LENGTH + AES_GCM_TAG_LENGTH) {
+    throw new Error('암호화된 사용자 정보 길이가 올바르지 않습니다.')
+  }
+
+  const iv = encrypted.subarray(0, AES_GCM_IV_LENGTH)
+  const authTag = encrypted.subarray(encrypted.length - AES_GCM_TAG_LENGTH)
+  const ciphertext = encrypted.subarray(AES_GCM_IV_LENGTH, encrypted.length - AES_GCM_TAG_LENGTH)
+  const decipher = createDecipheriv('aes-256-gcm', key, iv)
+  decipher.setAAD(aad)
+  decipher.setAuthTag(authTag)
+
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+}
+
+function parseScope(scope) {
+  if (typeof scope !== 'string' || !scope.trim()) {
+    return []
+  }
+
+  return scope
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeLoginMeResult(result) {
+  const success = result?.success ?? {}
+  let name = null
+  let decryptionStatus = 'not_requested'
+
+  if (typeof success.name === 'string' && success.name) {
+    try {
+      name = decryptUserInfoField(success.name)
+      decryptionStatus = name ? 'decrypted' : 'missing_key'
+    } catch (error) {
+      console.error('Failed to decrypt user name:', error)
+      decryptionStatus = 'failed'
+    }
+  }
+
+  return {
+    userKey: success.userKey ? String(success.userKey) : '',
+    scope: parseScope(success.scope),
+    agreedTerms: Array.isArray(success.agreedTerms) ? success.agreedTerms : [],
+    name,
+    hasEncryptedName: typeof success.name === 'string' && success.name.length > 0,
+    decryptionStatus,
+  }
 }
 
 async function sendSmartMessage({ userKey, context }) {
@@ -444,7 +571,9 @@ const server = createServer(async (request, response) => {
       }
 
       const result = await fetchLoginMe(accessToken)
-      json(response, 200, { result })
+      json(response, 200, {
+        user: normalizeLoginMeResult(result),
+      })
     } catch (error) {
       json(response, 500, { error: error instanceof Error ? error.message : String(error) })
     }
