@@ -345,6 +345,7 @@ export function HomePage() {
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
   const [userName, setUserName] = useState(() => getInitialUserName())
+  const [isUserNameRequestPending, setIsUserNameRequestPending] = useState(false)
   const [userNameStatus, setUserNameStatus] = useState<
     'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided' | 'not_configured' | 'declined' | 'unavailable'
   >(() => (getInitialUserName() ? 'decrypted' : 'idle'))
@@ -593,10 +594,19 @@ export function HomePage() {
     }
 
     try {
-      const data = await getConsentedUserData({
-        consentedUserDataKey: USER_NAME_CONSENTED_DATA_KEY,
-        shouldRequestAgreementWhenUserDeclined: true,
-      })
+      setIsUserNameRequestPending(true)
+      setCameraMessage('이름 정보 제공 동의 여부를 확인하고 있어요.')
+      const data = await Promise.race([
+        getConsentedUserData({
+          consentedUserDataKey: USER_NAME_CONSENTED_DATA_KEY,
+          shouldRequestAgreementWhenUserDeclined: true,
+        }),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            reject({ code: 'TIMEOUT' })
+          }, 8000)
+        }),
+      ])
       const nextUserName = typeof data?.USER_NAME === 'string' ? data.USER_NAME.trim() : ''
 
       if (nextUserName) {
@@ -628,6 +638,8 @@ export function HomePage() {
       console.error('사용자 이름 불러오기에 실패했어요:', error)
       setUserNameStatus('failed')
       return { userName: '', status: 'failed' as const }
+    } finally {
+      setIsUserNameRequestPending(false)
     }
   }
 
@@ -1229,8 +1241,17 @@ export function HomePage() {
           </div>
 
           <div className="camera-panel">
-            <button type="button" className="primary-action primary-action--blue" onClick={handleOpenCamera}>
-              {capturedImageUri ? '얼굴 다시 촬영하기' : '얼굴 촬영하기'}
+            <button
+              type="button"
+              className="primary-action primary-action--blue"
+              onClick={handleOpenCamera}
+              disabled={isUserNameRequestPending}
+            >
+              {isUserNameRequestPending
+                ? '이름 정보 확인 중...'
+                : capturedImageUri
+                  ? '얼굴 다시 촬영하기'
+                  : '얼굴 촬영하기'}
             </button>
             <p className="helper-text">
               카메라로 얼굴을 촬영하면 바로 반영됩니다. 이후 선크림 상태에 따라 붉어짐과 탐 오버레이가
@@ -1239,6 +1260,11 @@ export function HomePage() {
             {!userName && (
               <p className="helper-text helper-text--tight">
                 얼굴을 처음 등록하는 시점에 이름 정보 제공 동의가 함께 노출될 수 있어요.
+              </p>
+            )}
+            {isUserNameRequestPending && (
+              <p className="helper-text helper-text--tight">
+                토스 동의 화면이나 응답을 기다리는 중이에요. 8초 이상 반응이 없으면 다시 눌러 주세요.
               </p>
             )}
           </div>
