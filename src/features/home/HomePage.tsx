@@ -485,68 +485,6 @@ export function HomePage() {
   }, [accessToken, isCaptureMode, userKey, userName])
 
   useEffect(() => {
-    if (isCaptureMode || !hasStarted || userName) {
-      return
-    }
-
-    if (!USER_NAME_CONSENTED_DATA_KEY) {
-      setUserNameStatus((current) => (current === 'idle' ? 'not_configured' : current))
-      return
-    }
-
-    let cancelled = false
-
-    getConsentedUserData({
-      consentedUserDataKey: USER_NAME_CONSENTED_DATA_KEY,
-      shouldRequestAgreementWhenUserDeclined: true,
-    })
-      .then((data) => {
-        if (cancelled) {
-          return
-        }
-
-        const nextUserName = typeof data?.USER_NAME === 'string' ? data.USER_NAME.trim() : ''
-
-        if (nextUserName) {
-          setUserName(nextUserName)
-          setUserNameStatus('decrypted')
-          return
-        }
-
-        setUserNameStatus('not_provided')
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return
-        }
-
-        const code = getUserInfoErrorCode(error)
-
-        if (code === 'USER_DECLINED' || code === 'CANCELED') {
-          setUserNameStatus('declined')
-          return
-        }
-
-        if (code === 'TERMS_NOT_SET' || code === 'INVALID_REQUEST') {
-          setUserNameStatus('not_configured')
-          return
-        }
-
-        if (code === 'UNAVAILABLE') {
-          setUserNameStatus('unavailable')
-          return
-        }
-
-        console.error('사용자 이름 불러오기에 실패했어요:', error)
-        setUserNameStatus('failed')
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [hasStarted, isCaptureMode, userName])
-
-  useEffect(() => {
     if (isCaptureMode) {
       return
     }
@@ -644,8 +582,61 @@ export function HomePage() {
     return cleanup
   }
 
+  async function requestUserNameFromConsentedData() {
+    if (userName) {
+      return userName
+    }
+
+    if (!USER_NAME_CONSENTED_DATA_KEY) {
+      setUserNameStatus('not_configured')
+      return ''
+    }
+
+    try {
+      const data = await getConsentedUserData({
+        consentedUserDataKey: USER_NAME_CONSENTED_DATA_KEY,
+        shouldRequestAgreementWhenUserDeclined: true,
+      })
+      const nextUserName = typeof data?.USER_NAME === 'string' ? data.USER_NAME.trim() : ''
+
+      if (nextUserName) {
+        setUserName(nextUserName)
+        setUserNameStatus('decrypted')
+        return nextUserName
+      }
+
+      setUserNameStatus('not_provided')
+      return ''
+    } catch (error) {
+      const code = getUserInfoErrorCode(error)
+
+      if (code === 'USER_DECLINED' || code === 'CANCELED') {
+        setUserNameStatus('declined')
+        return ''
+      }
+
+      if (code === 'TERMS_NOT_SET' || code === 'INVALID_REQUEST') {
+        setUserNameStatus('not_configured')
+        return ''
+      }
+
+      if (code === 'UNAVAILABLE') {
+        setUserNameStatus('unavailable')
+        return ''
+      }
+
+      console.error('사용자 이름 불러오기에 실패했어요:', error)
+      setUserNameStatus('failed')
+      return ''
+    }
+  }
+
   async function handleOpenCamera() {
     try {
+      if (!userName) {
+        await requestUserNameFromConsentedData()
+      }
+
       const permission = await openCamera.getPermission()
 
       if (permission !== 'allowed') {
@@ -1230,6 +1221,11 @@ export function HomePage() {
               카메라로 얼굴을 촬영하면 바로 반영됩니다. 이후 선크림 상태에 따라 붉어짐과 탐 오버레이가
               이 얼굴 위에 덮입니다.
             </p>
+            {!userName && (
+              <p className="helper-text helper-text--tight">
+                얼굴을 처음 등록하는 시점에 이름 정보 제공 동의가 함께 노출될 수 있어요.
+              </p>
+            )}
           </div>
 
           <div className="form-stack">
