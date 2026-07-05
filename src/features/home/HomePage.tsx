@@ -584,12 +584,12 @@ export function HomePage() {
 
   async function requestUserNameFromConsentedData() {
     if (userName) {
-      return userName
+      return { userName, status: 'decrypted' as const }
     }
 
     if (!USER_NAME_CONSENTED_DATA_KEY) {
       setUserNameStatus('not_configured')
-      return ''
+      return { userName: '', status: 'not_configured' as const }
     }
 
     try {
@@ -602,39 +602,54 @@ export function HomePage() {
       if (nextUserName) {
         setUserName(nextUserName)
         setUserNameStatus('decrypted')
-        return nextUserName
+        return { userName: nextUserName, status: 'decrypted' as const }
       }
 
       setUserNameStatus('not_provided')
-      return ''
+      return { userName: '', status: 'not_provided' as const }
     } catch (error) {
       const code = getUserInfoErrorCode(error)
 
       if (code === 'USER_DECLINED' || code === 'CANCELED') {
         setUserNameStatus('declined')
-        return ''
+        return { userName: '', status: 'declined' as const }
       }
 
       if (code === 'TERMS_NOT_SET' || code === 'INVALID_REQUEST') {
         setUserNameStatus('not_configured')
-        return ''
+        return { userName: '', status: 'not_configured' as const }
       }
 
       if (code === 'UNAVAILABLE') {
         setUserNameStatus('unavailable')
-        return ''
+        return { userName: '', status: 'unavailable' as const }
       }
 
       console.error('사용자 이름 불러오기에 실패했어요:', error)
       setUserNameStatus('failed')
-      return ''
+      return { userName: '', status: 'failed' as const }
     }
   }
 
   async function handleOpenCamera() {
     try {
       if (!userName) {
-        await requestUserNameFromConsentedData()
+        const result = await requestUserNameFromConsentedData()
+
+        if (!result.userName) {
+          if (result.status === 'declined') {
+            setCameraMessage('이름 정보 제공에 동의해야 얼굴 등록을 진행할 수 있어요.')
+          } else if (result.status === 'not_configured') {
+            setCameraMessage('이름 정보 동의 설정이 아직 연결되지 않아 얼굴 등록을 진행할 수 없어요.')
+          } else if (result.status === 'unavailable') {
+            setCameraMessage('지금은 토스에서 이름 정보를 불러올 수 없어 얼굴 등록을 진행할 수 없어요.')
+          } else if (result.status === 'failed') {
+            setCameraMessage('이름 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.')
+          } else {
+            setCameraMessage('이름 정보를 확인한 뒤 얼굴 등록을 진행해 주세요.')
+          }
+          return
+        }
       }
 
       const permission = await openCamera.getPermission()
