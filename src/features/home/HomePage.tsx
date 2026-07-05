@@ -23,6 +23,11 @@ type CaptureScenario = {
   cameraMessage: string
 }
 
+type DebugEntry = {
+  at: string
+  message: string
+}
+
 const LAST_APPLIED_AT_KEY = 'summer-ping:last-applied-at'
 const NOTIFICATION_AGREEMENT_KEY = 'summer-ping:notification-agreement'
 const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
@@ -333,6 +338,29 @@ function getUserInfoErrorCode(error: unknown) {
   return typeof code === 'string' ? code : ''
 }
 
+function getDebugTimestamp() {
+  return new Date().toLocaleTimeString('ko-KR', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function getDebugErrorMessage(error: unknown) {
+  const code = getUserInfoErrorCode(error)
+
+  if (code) {
+    return code
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return String(error)
+}
+
 export function HomePage() {
   const [searchParams] = useSearchParams()
   const [lastAppliedAt, setLastAppliedAt] = useState(() => getInitialLastAppliedAt())
@@ -346,8 +374,10 @@ export function HomePage() {
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
   const [userName, setUserName] = useState(() => getInitialUserName())
   const [isUserNameRequestPending, setIsUserNameRequestPending] = useState(false)
+  const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
+  const [debugStage, setDebugStage] = useState('idle')
   const [userNameStatus, setUserNameStatus] = useState<
-    'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided' | 'not_configured' | 'declined' | 'unavailable'
+    'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided' | 'not_configured' | 'declined' | 'unavailable' | 'timeout'
   >(() => (getInitialUserName() ? 'decrypted' : 'idle'))
   const [notificationMessage, setNotificationMessage] = useState(
     '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
@@ -408,6 +438,19 @@ export function HomePage() {
   const hasNotificationAgreement = hasCompletedNotificationAgreement(notificationAgreement)
   const [hasStarted, setHasStarted] = useState(() => !NOTIFICATION_TEMPLATE_CODE || hasNotificationAgreement)
 
+  function appendDebug(message: string) {
+    setDebugEntries((current) => {
+      const next = [...current, { at: getDebugTimestamp(), message }]
+      return next.slice(-12)
+    })
+  }
+
+  useEffect(() => {
+    appendDebug(
+      `초기 상태 accessToken=${accessToken ? 'yes' : 'no'} userKey=${userKey ? 'yes' : 'no'} userName=${userName ? 'yes' : 'no'} cudKey=${USER_NAME_CONSENTED_DATA_KEY ? 'yes' : 'no'}`,
+    )
+  }, [])
+
   useEffect(() => {
     if (!userKey) {
       return
@@ -437,6 +480,7 @@ export function HomePage() {
       return
     }
 
+    appendDebug('login-me 요청 시작')
     const controller = new AbortController()
 
     fetch(buildApiUrl('/api/users/login-me'), {
@@ -466,6 +510,9 @@ export function HomePage() {
                 ? 'failed'
                 : 'missing_key'
               : 'not_provided'
+        appendDebug(
+          `login-me 응답 userKey=${nextUserKey ? 'yes' : 'no'} encryptedName=${result.user.hasEncryptedName ? 'yes' : 'no'} status=${nextUserNameStatus}`,
+        )
         setUserKey(nextUserKey)
         setUserNameStatus(nextUserNameStatus)
         if (nextUserName) {
@@ -478,6 +525,7 @@ export function HomePage() {
           return
         }
 
+        appendDebug(`login-me 실패 ${getDebugErrorMessage(error)}`)
         setUserNameStatus('failed')
         setNotificationMessage(error instanceof Error ? error.message : 'userKey 조회에 실패했어요.')
       })
@@ -585,16 +633,20 @@ export function HomePage() {
 
   async function requestUserNameFromConsentedData() {
     if (userName) {
+      appendDebug('사용자 이름이 이미 로컬 상태에 있어 CUD 조회 생략')
       return { userName, status: 'decrypted' as const }
     }
 
     if (!USER_NAME_CONSENTED_DATA_KEY) {
+      appendDebug('CUD 키가 없어 사용자 이름 조회 중단')
       setUserNameStatus('not_configured')
       return { userName: '', status: 'not_configured' as const }
     }
 
     try {
       setIsUserNameRequestPending(true)
+      setDebugStage('user-info-request')
+      appendDebug(`CUD 조회 시작 key=${USER_NAME_CONSENTED_DATA_KEY}`)
       setCameraMessage('이름 정보 제공 동의 여부를 확인하고 있어요.')
       const data = await Promise.race([
         getConsentedUserData({
@@ -610,32 +662,51 @@ export function HomePage() {
       const nextUserName = typeof data?.USER_NAME === 'string' ? data.USER_NAME.trim() : ''
 
       if (nextUserName) {
+        appendDebug('CUD 조회 성공 USER_NAME 수신')
+        setDebugStage('user-info-success')
         setUserName(nextUserName)
         setUserNameStatus('decrypted')
         return { userName: nextUserName, status: 'decrypted' as const }
       }
 
+      appendDebug('CUD 조회 응답은 왔지만 USER_NAME 값이 비어 있음')
+      setDebugStage('user-info-empty')
       setUserNameStatus('not_provided')
       return { userName: '', status: 'not_provided' as const }
     } catch (error) {
       const code = getUserInfoErrorCode(error)
 
+      if (code === 'TIMEOUT') {
+        appendDebug('CUD 조회 타임아웃')
+        setDebugStage('user-info-timeout')
+        setUserNameStatus('timeout')
+        return { userName: '', status: 'timeout' as const }
+      }
+
       if (code === 'USER_DECLINED' || code === 'CANCELED') {
+        appendDebug(`CUD 조회 거절 또는 취소 ${code}`)
+        setDebugStage('user-info-declined')
         setUserNameStatus('declined')
         return { userName: '', status: 'declined' as const }
       }
 
       if (code === 'TERMS_NOT_SET' || code === 'INVALID_REQUEST') {
+        appendDebug(`CUD 설정 오류 ${code}`)
+        setDebugStage('user-info-not-configured')
         setUserNameStatus('not_configured')
         return { userName: '', status: 'not_configured' as const }
       }
 
       if (code === 'UNAVAILABLE') {
+        appendDebug('CUD 조회 unavailable')
+        setDebugStage('user-info-unavailable')
         setUserNameStatus('unavailable')
         return { userName: '', status: 'unavailable' as const }
       }
 
+      appendDebug(`CUD 조회 실패 ${getDebugErrorMessage(error)}`)
       console.error('사용자 이름 불러오기에 실패했어요:', error)
+      setDebugStage('user-info-failed')
       setUserNameStatus('failed')
       return { userName: '', status: 'failed' as const }
     } finally {
@@ -645,16 +716,21 @@ export function HomePage() {
 
   async function handleOpenCamera() {
     try {
+      appendDebug('촬영 버튼 클릭')
+      setDebugStage('camera-clicked')
       if (!userName) {
         const result = await requestUserNameFromConsentedData()
 
         if (!result.userName) {
+          appendDebug(`촬영 중단 사용자 이름 상태=${result.status}`)
           if (result.status === 'declined') {
             setCameraMessage('이름 정보 제공에 동의해야 얼굴 등록을 진행할 수 있어요.')
           } else if (result.status === 'not_configured') {
             setCameraMessage('이름 정보 동의 설정이 아직 연결되지 않아 얼굴 등록을 진행할 수 없어요.')
           } else if (result.status === 'unavailable') {
             setCameraMessage('지금은 토스에서 이름 정보를 불러올 수 없어 얼굴 등록을 진행할 수 없어요.')
+          } else if (result.status === 'timeout') {
+            setCameraMessage('이름 정보 동의 화면 응답이 지연되고 있어요. 다시 시도해 주세요.')
           } else if (result.status === 'failed') {
             setCameraMessage('이름 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.')
           } else {
@@ -664,29 +740,43 @@ export function HomePage() {
         }
       }
 
+      appendDebug('카메라 권한 상태 조회 시작')
+      setDebugStage('camera-permission-check')
       const permission = await openCamera.getPermission()
+      appendDebug(`카메라 권한 상태 ${permission}`)
 
       if (permission !== 'allowed') {
+        appendDebug('카메라 권한 다이얼로그 오픈')
         const requestedPermission = await openCamera.openPermissionDialog()
+        appendDebug(`카메라 권한 다이얼로그 결과 ${requestedPermission}`)
 
         if (requestedPermission !== 'allowed') {
+          setDebugStage('camera-permission-denied')
           setCameraMessage('카메라 권한이 필요해요. 권한을 허용해야 얼굴 이미지를 붙일 수 있어요.')
           return
         }
       }
 
+      appendDebug('카메라 호출 시작')
+      setDebugStage('camera-open')
       const response = await openCamera({ base64: true, maxWidth: 720 })
       const imageUri = `data:image/jpeg;base64,${response.dataUri}`
+      appendDebug(`카메라 응답 수신 base64Length=${response.dataUri.length}`)
+      setDebugStage('camera-success')
       setCapturedImageUri(imageUri)
       setFaceScale(1)
       setFaceOffsetY(0)
       setCameraMessage('촬영한 얼굴 이미지를 적용했어요. 이제 단계별 피부 변화가 이 얼굴 위에 반영됩니다.')
     } catch (error) {
       if (error instanceof OpenCameraPermissionError) {
+        appendDebug('카메라 권한 예외 발생')
+        setDebugStage('camera-permission-error')
         setCameraMessage('카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.')
         return
       }
 
+      appendDebug(`카메라 호출 실패 ${getDebugErrorMessage(error)}`)
+      setDebugStage('camera-failed')
       console.error('사진을 가져오는 데 실패했어요:', error)
       setCameraMessage('얼굴 촬영에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
     }
@@ -1076,7 +1166,7 @@ export function HomePage() {
           {userName ? `${userName}님, ` : ''}
           얼굴 상태 변화를 직접 보여줘서, 선크림을 제때 다시 바르는 습관을 만들도록 돕는 서비스입니다.
         </p>
-        {!userName && userNameStatus !== 'idle' && (
+            {!userName && userNameStatus !== 'idle' && (
           <p className="helper-text helper-text--tight">
             {userNameStatus === 'missing_key' && '이름 암호문은 받았지만 서버 복호화 키 설정을 아직 읽지 못했어요.'}
             {userNameStatus === 'failed' && '이름 암호문은 받았지만 복호화에 실패했어요. 서버 키나 AAD 설정을 확인해 주세요.'}
@@ -1084,6 +1174,7 @@ export function HomePage() {
             {userNameStatus === 'not_configured' && '사용자 정보 불러오기 설정이나 이름용 cud 키가 아직 연결되지 않았어요.'}
             {userNameStatus === 'declined' && '이름 정보 제공 동의가 완료되지 않아 이름을 표시하지 못하고 있어요.'}
             {userNameStatus === 'unavailable' && '지금은 토스에서 사용자 이름 정보를 불러올 수 없는 상태예요.'}
+            {userNameStatus === 'timeout' && '이름 정보 동의 화면 응답이 지연되고 있어요. 다시 시도해 주세요.'}
           </p>
         )}
 
@@ -1267,6 +1358,29 @@ export function HomePage() {
                 토스 동의 화면이나 응답을 기다리는 중이에요. 8초 이상 반응이 없으면 다시 눌러 주세요.
               </p>
             )}
+            <div className="debug-panel">
+              <div className="debug-panel__header">
+                <strong>In-App Debug</strong>
+                <button type="button" className="debug-panel__clear" onClick={() => setDebugEntries([])}>
+                  로그 지우기
+                </button>
+              </div>
+              <p className="helper-text helper-text--tight">
+                stage: {debugStage} · userNameStatus: {userNameStatus} · accessToken: {accessToken ? 'yes' : 'no'} · cudKey:{' '}
+                {USER_NAME_CONSENTED_DATA_KEY ? 'yes' : 'no'}
+              </p>
+              {debugEntries.length > 0 ? (
+                <div className="debug-panel__log">
+                  {debugEntries.map((entry, index) => (
+                    <p key={`${entry.at}-${index}`} className="debug-panel__line">
+                      [{entry.at}] {entry.message}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="helper-text helper-text--tight">아직 기록된 디버그 로그가 없어요.</p>
+              )}
+            </div>
           </div>
 
           <div className="form-stack">
