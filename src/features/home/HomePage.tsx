@@ -794,11 +794,15 @@ export function HomePage() {
     setCameraMessage('선크림을 다시 발랐어요. 얼굴 상태를 바로 안전 단계로 되돌렸습니다.')
   }
 
-  function renderFaceVisual(visualStage: SunscreenStage, options?: { mini?: boolean; showGuide?: boolean; label?: string }) {
+  function renderFaceVisual(
+    visualStage: SunscreenStage,
+    options?: { mini?: boolean; showGuide?: boolean; label?: string; userName?: string },
+  ) {
     const mini = options?.mini ?? false
 
     return (
       <div className={getFaceToneClass(visualStage)}>
+        {!mini && options?.userName ? <span className="face-visual__name">{options.userName}님</span> : null}
         {hasFaceImage ? (
           <img
             className={mini ? 'face-visual__image face-visual__image--mini' : 'face-visual__image'}
@@ -1238,6 +1242,7 @@ export function HomePage() {
             {renderFaceVisual(displayStage, {
               showGuide: hasFaceImage,
               label: hasFaceImage ? '내 얼굴 변화' : undefined,
+              userName,
             })}
 
             <div className="face-stage-copy">
