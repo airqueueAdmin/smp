@@ -461,11 +461,9 @@ export function HomePage() {
           nextUserName
             ? 'decrypted'
             : result.user.hasEncryptedName
-              ? result.user.decryptionStatus === 'missing_key'
-                ? 'missing_key'
-                : result.user.decryptionStatus === 'failed'
-                  ? 'failed'
-                  : 'idle'
+              ? result.user.decryptionStatus === 'failed'
+                ? 'failed'
+                : 'missing_key'
               : 'not_provided'
         setUserKey(nextUserKey)
         setUserNameStatus(nextUserNameStatus)

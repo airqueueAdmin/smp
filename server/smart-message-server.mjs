@@ -164,18 +164,18 @@ function loadUserInfoDecryptionKey() {
 
 function loadUserInfoAad() {
   if (USER_INFO_AAD_BASE64) {
-    return decodeBase64ToBuffer(USER_INFO_AAD_BASE64)
+    return decodeBase64ToBuffer(normalizeBase64(USER_INFO_AAD_BASE64))
   }
 
   if (!USER_INFO_AAD) {
     return null
   }
 
-  try {
-    return decodeBase64ToBuffer(normalizeBase64(USER_INFO_AAD))
-  } catch {
-    return Buffer.from(USER_INFO_AAD, 'utf8')
-  }
+  return Buffer.from(USER_INFO_AAD, 'utf8')
+}
+
+function hasUserInfoDecryptionConfig() {
+  return Boolean(loadUserInfoDecryptionKey() && loadUserInfoAad())
 }
 
 function decryptUserInfoField(value) {
@@ -223,12 +223,16 @@ function normalizeLoginMeResult(result) {
   let decryptionStatus = 'not_requested'
 
   if (typeof success.name === 'string' && success.name) {
-    try {
-      name = decryptUserInfoField(success.name)
-      decryptionStatus = name ? 'decrypted' : 'missing_key'
-    } catch (error) {
-      console.error('Failed to decrypt user name:', error)
-      decryptionStatus = 'failed'
+    if (!hasUserInfoDecryptionConfig()) {
+      decryptionStatus = 'missing_key'
+    } else {
+      try {
+        name = decryptUserInfoField(success.name)
+        decryptionStatus = name ? 'decrypted' : 'missing_key'
+      } catch (error) {
+        console.error('Failed to decrypt user name:', error)
+        decryptionStatus = 'failed'
+      }
     }
   }
 
