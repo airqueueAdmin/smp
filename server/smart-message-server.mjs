@@ -101,6 +101,16 @@ function normalizeBase64(value) {
   return value.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '')
 }
 
+function normalizeEnvMultiline(value) {
+  const trimmed = value.trim()
+  const unquoted =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+      ? trimmed.slice(1, -1)
+      : trimmed
+
+  return unquoted.replace(/\\n/g, '\n')
+}
+
 function loadTlsCredential(kind) {
   const isCert = kind === 'cert'
   const directPem = isCert ? CERT_PEM : KEY_PEM
@@ -108,7 +118,7 @@ function loadTlsCredential(kind) {
   const filePath = isCert ? CERT_PATH : KEY_PATH
 
   if (directPem) {
-    return directPem
+    return normalizeEnvMultiline(directPem)
   }
 
   if (base64Pem) {
@@ -163,15 +173,15 @@ function loadUserInfoDecryptionKey() {
 }
 
 function loadUserInfoAad() {
+  if (USER_INFO_AAD) {
+    return Buffer.from(USER_INFO_AAD, 'utf8')
+  }
+
   if (USER_INFO_AAD_BASE64) {
     return decodeBase64ToBuffer(normalizeBase64(USER_INFO_AAD_BASE64))
   }
 
-  if (!USER_INFO_AAD) {
-    return null
-  }
-
-  return Buffer.from(USER_INFO_AAD, 'utf8')
+  return null
 }
 
 function hasUserInfoDecryptionConfig() {

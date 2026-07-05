@@ -477,6 +477,7 @@ export function HomePage() {
           return
         }
 
+        setUserNameStatus('failed')
         setNotificationMessage(error instanceof Error ? error.message : 'userKey 조회에 실패했어요.')
       })
 
