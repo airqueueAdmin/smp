@@ -19,11 +19,10 @@ export function AppLayout() {
       >
         {!isCaptureMode && (
           <header className="app-header">
-            <p className="app-header__eyebrow">7월 챌린지 · 선크림 리마인드</p>
-            <h1 className="app-header__title">선크림을 발라요</h1>
+            <p className="app-header__eyebrow">Summer Ping · 퍼스널 선케어</p>
+            <h1 className="app-header__title">외출 중에도 선케어 타이밍을 놓치지 마세요</h1>
             <p className="app-header__description">
-              Summer Ping은 얼굴 상태 변화를 통해 사용자가 선크림을 제때 다시 바르도록 유도하는
-              서비스입니다.
+              얼굴 변화와 자외선 강도를 바탕으로 덧바를 시점을 안내하는 선케어 서비스입니다.
             </p>
           </header>
         )}

@@ -29,6 +29,7 @@ type DebugEntry = {
 }
 
 const LAST_APPLIED_AT_KEY = 'summer-ping:last-applied-at'
+const LAST_APPLIED_AT_OWNER_KEY = 'summer-ping:last-applied-at-owner'
 const NOTIFICATION_AGREEMENT_KEY = 'summer-ping:notification-agreement'
 const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
 const USER_NAME_STORAGE_KEY = 'summer-ping:user-name'
@@ -112,8 +113,8 @@ function getCaptureScenario(capture: string | null): CaptureScenario | null {
         exposureMinutes: 126,
         lastAppliedAt: '2026-07-02T11:54:00+09:00',
         nextAction: '지금 덧바를 시간',
-        headline: '선크림을 발라요',
-        description: '내 얼굴이 어떻게 달라지는지 보여줘서, 덧바를 타이밍을 놓치지 않게 만드는 선크림 리마인드 서비스입니다.',
+        headline: '얼굴 변화로 덧바를 타이밍을 확인해요',
+        description: '촬영한 얼굴과 자외선 변화를 함께 보여줘, 다시 발라야 할 순간을 바로 이해할 수 있는 선케어 서비스입니다.',
         cameraMessage: '촬영한 얼굴이 붉어지고 어두워지는 변화를 단계별로 한눈에 확인할 수 있어요.',
       }
     case 'thumbnail':
@@ -125,8 +126,8 @@ function getCaptureScenario(capture: string | null): CaptureScenario | null {
         exposureMinutes: 126,
         lastAppliedAt: '2026-07-02T11:54:00+09:00',
         nextAction: '지금 덧바를 시간',
-        headline: '선크림을 발라요',
-        description: '실제 얼굴 변화로 덧바를 타이밍을 알려주는 Summer Ping',
+        headline: '얼굴 변화로 덧바를 타이밍을 확인해요',
+        description: '실제 얼굴 변화로 다시 발라야 할 순간을 알려주는 Summer Ping',
         cameraMessage: '자외선이 강한 시간대에는 얼굴 변화가 더 빠르게 보입니다.',
       }
     default:
@@ -282,10 +283,6 @@ function getNextAction(stage: SunscreenStage, hour: number) {
   return '다음 외출 전 리마인드 필수'
 }
 
-function getInitialLastAppliedAt() {
-  return window.localStorage.getItem(LAST_APPLIED_AT_KEY)
-}
-
 function formatDateTime(value: string) {
   const date = new Date(value)
   const year = date.getFullYear()
@@ -363,7 +360,7 @@ function getDebugErrorMessage(error: unknown) {
 
 export function HomePage() {
   const [searchParams] = useSearchParams()
-  const [lastAppliedAt, setLastAppliedAt] = useState(() => getInitialLastAppliedAt())
+  const [lastAppliedAt, setLastAppliedAt] = useState('')
   const [outdoorTime, setOutdoorTime] = useState<OutdoorTime>('medium')
   const [hasHat, setHasHat] = useState(false)
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null)
@@ -458,6 +455,31 @@ export function HomePage() {
 
     window.localStorage.setItem(USER_KEY_STORAGE_KEY, userKey)
   }, [userKey])
+
+  useEffect(() => {
+    if (isCaptureMode || !userKey) {
+      return
+    }
+
+    const storedLastAppliedAt = window.localStorage.getItem(LAST_APPLIED_AT_KEY)
+    const storedOwnerKey = window.localStorage.getItem(LAST_APPLIED_AT_OWNER_KEY)
+
+    if (lastAppliedAt) {
+      window.localStorage.setItem(LAST_APPLIED_AT_KEY, lastAppliedAt)
+      window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, userKey)
+      return
+    }
+
+    if (storedLastAppliedAt && storedOwnerKey === userKey) {
+      setLastAppliedAt(storedLastAppliedAt)
+      return
+    }
+
+    if (storedLastAppliedAt && storedOwnerKey !== userKey) {
+      window.localStorage.removeItem(LAST_APPLIED_AT_KEY)
+      window.localStorage.removeItem(LAST_APPLIED_AT_OWNER_KEY)
+    }
+  }, [isCaptureMode, lastAppliedAt, userKey])
 
   useEffect(() => {
     if (!userName) {
@@ -1165,10 +1187,10 @@ export function HomePage() {
         <>
       <section className="hero-section">
         <p className="eyebrow">Summer Ping</p>
-        <h2 className="hero-title">선크림을 발라요</h2>
+        <h2 className="hero-title">얼굴 변화로 덧바를 타이밍을 확인해요</h2>
         <p className="hero-description">
           {userName ? `${userName}님, ` : ''}
-          얼굴 상태 변화를 직접 보여줘서, 선크림을 제때 다시 바르는 습관을 만들도록 돕는 서비스입니다.
+          촬영한 얼굴과 현재 자외선 환경을 함께 반영해, 지금 선케어가 필요한 순간을 직관적으로 보여드립니다.
         </p>
             {!userName && userNameStatus !== 'idle' && (
           <p className="helper-text helper-text--tight">
