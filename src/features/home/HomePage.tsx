@@ -4,7 +4,7 @@ import {
   openCamera,
   requestNotificationAgreement,
 } from '@apps-in-toss/web-framework'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 type SunscreenStage = 'fresh' | 'fading' | 'warning' | 'burned'
@@ -26,6 +26,19 @@ type CaptureScenario = {
 type DebugEntry = {
   at: string
   message: string
+}
+
+type FaceRenderPreset = {
+  baseWarmth: number
+  redness: number
+  tan: number
+  freckles: number
+  patches: number
+  dryness: number
+  shadow: number
+  highlight: number
+  saturation: number
+  contrast: number
 }
 
 const LAST_APPLIED_AT_KEY = 'summer-ping:last-applied-at'
@@ -62,6 +75,333 @@ const DEMO_FACE_IMAGE_URI = `data:image/svg+xml;charset=UTF-8,${encodeURICompone
     <ellipse cx="164" cy="126" rx="15" ry="28" fill="#2a3654"/>
   </svg>
 `)}` as const
+
+const FACE_RENDER_PRESETS: Record<SunscreenStage, FaceRenderPreset> = {
+  fresh: {
+    baseWarmth: 0.05,
+    redness: 0.06,
+    tan: 0.02,
+    freckles: 0.02,
+    patches: 0.01,
+    dryness: 0.02,
+    shadow: 0.04,
+    highlight: 0.16,
+    saturation: 1.02,
+    contrast: 1.01,
+  },
+  fading: {
+    baseWarmth: 0.1,
+    redness: 0.18,
+    tan: 0.08,
+    freckles: 0.12,
+    patches: 0.08,
+    dryness: 0.12,
+    shadow: 0.08,
+    highlight: 0.11,
+    saturation: 0.99,
+    contrast: 1.02,
+  },
+  warning: {
+    baseWarmth: 0.16,
+    redness: 0.34,
+    tan: 0.17,
+    freckles: 0.3,
+    patches: 0.24,
+    dryness: 0.28,
+    shadow: 0.14,
+    highlight: 0.08,
+    saturation: 0.95,
+    contrast: 1.04,
+  },
+  burned: {
+    baseWarmth: 0.24,
+    redness: 0.4,
+    tan: 0.28,
+    freckles: 0.48,
+    patches: 0.38,
+    dryness: 0.42,
+    shadow: 0.2,
+    highlight: 0.05,
+    saturation: 0.9,
+    contrast: 1.07,
+  },
+}
+
+function createSeededRandom(seed: number) {
+  let current = seed >>> 0
+
+  return () => {
+    current = (current * 1664525 + 1013904223) >>> 0
+    return current / 4294967296
+  }
+}
+
+function getFaceSeed(src: string, stage: SunscreenStage) {
+  let seed = 2166136261
+
+  for (const character of `${stage}:${src}`) {
+    seed ^= character.charCodeAt(0)
+    seed = Math.imul(seed, 16777619)
+  }
+
+  return seed >>> 0
+}
+
+function drawEllipsePath(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radiusX: number,
+  radiusY: number,
+) {
+  context.beginPath()
+  context.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2)
+  context.closePath()
+}
+
+function drawCoverImage(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+) {
+  const scale = Math.max(width / image.width, height / image.height)
+  const drawWidth = image.width * scale
+  const drawHeight = image.height * scale
+  const offsetX = (width - drawWidth) / 2
+  const offsetY = (height - drawHeight) / 2
+
+  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight)
+}
+
+function applyFaceRetouch(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  stage: SunscreenStage,
+  seed: number,
+  mini: boolean,
+) {
+  const preset = FACE_RENDER_PRESETS[stage]
+  const random = createSeededRandom(seed)
+  const centerX = width * 0.5
+  const centerY = height * 0.53
+  const radiusX = width * 0.34
+  const radiusY = height * 0.45
+  const freckleCount = mini ? Math.round(26 * preset.freckles) : Math.round(120 * preset.freckles)
+  const textureCount = mini ? Math.round(30 * preset.dryness) : Math.round(200 * preset.dryness)
+  const patchCount = mini ? Math.max(1, Math.round(3 * preset.patches)) : Math.max(2, Math.round(9 * preset.patches))
+
+  context.save()
+  drawEllipsePath(context, centerX, centerY, radiusX, radiusY)
+  context.clip()
+
+  context.globalCompositeOperation = 'source-over'
+  context.filter = 'none'
+
+  if (preset.baseWarmth > 0) {
+    const warmthGradient = context.createLinearGradient(0, 0, 0, height)
+    warmthGradient.addColorStop(0, `rgba(255, 219, 191, ${0.36 * preset.baseWarmth})`)
+    warmthGradient.addColorStop(0.55, `rgba(233, 150, 98, ${0.48 * preset.baseWarmth})`)
+    warmthGradient.addColorStop(1, `rgba(139, 80, 47, ${0.62 * preset.baseWarmth})`)
+    context.fillStyle = warmthGradient
+    context.fillRect(0, 0, width, height)
+  }
+
+  context.globalCompositeOperation = 'multiply'
+
+  if (preset.tan > 0) {
+    const tanGradient = context.createRadialGradient(centerX, centerY + height * 0.06, width * 0.08, centerX, centerY, width * 0.42)
+    tanGradient.addColorStop(0, `rgba(173, 111, 69, ${0.22 * preset.tan})`)
+    tanGradient.addColorStop(0.7, `rgba(126, 73, 42, ${0.42 * preset.tan})`)
+    tanGradient.addColorStop(1, `rgba(76, 40, 23, ${0.5 * preset.tan})`)
+    context.fillStyle = tanGradient
+    context.fillRect(0, 0, width, height)
+  }
+
+  if (preset.redness > 0) {
+    const cheekAlpha = 0.42 * preset.redness
+    const cheekRadius = radiusX * 0.38
+    const drawCheek = (x: number, y: number, alpha: number) => {
+      const gradient = context.createRadialGradient(x, y, width * 0.02, x, y, cheekRadius)
+      gradient.addColorStop(0, `rgba(210, 52, 52, ${alpha})`)
+      gradient.addColorStop(0.6, `rgba(201, 71, 58, ${alpha * 0.6})`)
+      gradient.addColorStop(1, 'rgba(201, 71, 58, 0)')
+      context.fillStyle = gradient
+      context.fillRect(0, 0, width, height)
+    }
+
+    drawCheek(centerX - radiusX * 0.62, centerY + radiusY * 0.12, cheekAlpha)
+    drawCheek(centerX + radiusX * 0.62, centerY + radiusY * 0.12, cheekAlpha * 0.96)
+    drawCheek(centerX, centerY - radiusY * 0.02, cheekAlpha * 0.38)
+  }
+
+  if (preset.freckles > 0) {
+    context.fillStyle = `rgba(102, 58, 34, ${0.38 * preset.freckles})`
+
+    for (let index = 0; index < freckleCount; index += 1) {
+      const angle = random() * Math.PI * 2
+      const radialDistance = Math.sqrt(random())
+      const x = centerX + Math.cos(angle) * radiusX * radialDistance * 0.96
+      const y = centerY + Math.sin(angle) * radiusY * radialDistance * 0.9
+
+      if (y > centerY + radiusY * 0.44) {
+        continue
+      }
+
+      const radius = mini ? 0.5 + random() * 0.55 : 0.8 + random() * 1.6
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.fill()
+    }
+  }
+
+  if (preset.patches > 0) {
+    context.filter = mini ? 'blur(2px)' : 'blur(7px)'
+
+    for (let index = 0; index < patchCount; index += 1) {
+      const angle = random() * Math.PI * 2
+      const radialDistance = 0.18 + random() * 0.7
+      const x = centerX + Math.cos(angle) * radiusX * radialDistance
+      const y = centerY + Math.sin(angle) * radiusY * radialDistance * 0.88
+      const patchRadius = (mini ? width * 0.04 : width * 0.065) + random() * width * (mini ? 0.02 : 0.05)
+      const patchGradient = context.createRadialGradient(x, y, patchRadius * 0.15, x, y, patchRadius)
+      const alpha = (0.14 + random() * 0.2) * preset.patches
+      patchGradient.addColorStop(0, `rgba(118, 65, 38, ${alpha})`)
+      patchGradient.addColorStop(1, 'rgba(118, 65, 38, 0)')
+      context.fillStyle = patchGradient
+      context.fillRect(0, 0, width, height)
+    }
+  }
+
+  if (preset.dryness > 0) {
+    context.filter = 'none'
+    context.strokeStyle = `rgba(88, 52, 33, ${0.18 * preset.dryness})`
+    context.lineWidth = mini ? 0.35 : 0.55
+
+    for (let index = 0; index < textureCount; index += 1) {
+      const angle = random() * Math.PI * 2
+      const radialDistance = Math.sqrt(random()) * 0.95
+      const x = centerX + Math.cos(angle) * radiusX * radialDistance
+      const y = centerY + Math.sin(angle) * radiusY * radialDistance
+      const length = (mini ? 0.8 : 1.6) + random() * (mini ? 0.7 : 2.2)
+      const direction = random() * Math.PI
+      context.beginPath()
+      context.moveTo(x, y)
+      context.lineTo(x + Math.cos(direction) * length, y + Math.sin(direction) * length)
+      context.stroke()
+    }
+  }
+
+  if (preset.shadow > 0) {
+    context.filter = 'none'
+    const edgeShadow = context.createLinearGradient(0, 0, 0, height)
+    edgeShadow.addColorStop(0, 'rgba(77, 41, 22, 0)')
+    edgeShadow.addColorStop(0.72, `rgba(82, 43, 25, ${0.12 * preset.shadow})`)
+    edgeShadow.addColorStop(1, `rgba(51, 28, 17, ${0.46 * preset.shadow})`)
+    context.fillStyle = edgeShadow
+    context.fillRect(0, 0, width, height)
+  }
+
+  context.globalCompositeOperation = 'screen'
+
+  if (preset.highlight > 0) {
+    const highlight = context.createRadialGradient(centerX, centerY - radiusY * 0.8, width * 0.02, centerX, centerY - radiusY * 0.75, radiusX * 0.8)
+    highlight.addColorStop(0, `rgba(255, 250, 242, ${0.42 * preset.highlight})`)
+    highlight.addColorStop(0.65, `rgba(255, 246, 233, ${0.16 * preset.highlight})`)
+    highlight.addColorStop(1, 'rgba(255, 246, 233, 0)')
+    context.fillStyle = highlight
+    context.fillRect(0, 0, width, height)
+  }
+
+  context.restore()
+}
+
+function applyColorFinish(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  stage: SunscreenStage,
+) {
+  const preset = FACE_RENDER_PRESETS[stage]
+
+  if (stage === 'fresh') {
+    return
+  }
+
+  const tempCanvas = document.createElement('canvas')
+  tempCanvas.width = width
+  tempCanvas.height = height
+  const tempContext = tempCanvas.getContext('2d')
+
+  if (!tempContext) {
+    return
+  }
+
+  tempContext.drawImage(context.canvas, 0, 0)
+  context.clearRect(0, 0, width, height)
+  context.filter = `saturate(${preset.saturation}) contrast(${preset.contrast})`
+  context.drawImage(tempCanvas, 0, 0)
+  context.filter = 'none'
+  context.globalCompositeOperation = 'source-over'
+  context.fillStyle = stage === 'burned' ? 'rgba(96, 58, 34, 0.06)' : 'rgba(122, 72, 42, 0.025)'
+  context.fillRect(0, 0, width, height)
+}
+
+function FaceRetouchCanvas({
+  alt,
+  mini = false,
+  src,
+  stage,
+}: {
+  alt: string
+  mini?: boolean
+  src: string
+  stage: SunscreenStage
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+
+    if (!canvas) {
+      return
+    }
+
+    let cancelled = false
+    const image = new Image()
+    const width = mini ? 104 : 320
+    const height = mini ? 128 : 380
+
+    image.decoding = 'async'
+    image.onload = () => {
+      if (cancelled) {
+        return
+      }
+
+      const context = canvas.getContext('2d')
+
+      if (!context) {
+        return
+      }
+
+      canvas.width = width
+      canvas.height = height
+      context.clearRect(0, 0, width, height)
+      context.imageSmoothingEnabled = true
+      drawCoverImage(context, image, width, height)
+      applyFaceRetouch(context, width, height, stage, getFaceSeed(src, stage), mini)
+      applyColorFinish(context, width, height, stage)
+    }
+    image.src = src
+
+    return () => {
+      cancelled = true
+    }
+  }, [mini, src, stage])
+
+  return <canvas ref={canvasRef} className="face-visual__canvas" role="img" aria-label={alt} />
+}
 
 function getCaptureScenario(capture: string | null): CaptureScenario | null {
   switch (capture as CaptureMode | null) {
@@ -821,23 +1161,24 @@ export function HomePage() {
     options?: { mini?: boolean; showGuide?: boolean; label?: string; userName?: string },
   ) {
     const mini = options?.mini ?? false
+    const subjectClassName = mini ? 'face-visual__subject face-visual__subject--mini' : 'face-visual__subject'
+    const subjectStyle = mini ? displayFaceImageMiniStyle : displayFaceImageStyle
 
     return (
       <div className={getFaceToneClass(visualStage)}>
         {!mini && options?.userName ? <span className="face-visual__name">{options.userName}님</span> : null}
-        {hasFaceImage ? (
-          <img
-            className={mini ? 'face-visual__image face-visual__image--mini' : 'face-visual__image'}
-            style={mini ? displayFaceImageMiniStyle : displayFaceImageStyle}
-            src={displayFaceImageUri ?? undefined}
-            alt={options?.label ?? '얼굴 상태'}
-          />
-        ) : (
-          <div className={mini ? 'face-visual__head face-visual__head--mini' : 'face-visual__head'} />
-        )}
-        <div className="face-visual__cheek face-visual__cheek--left" />
-        <div className="face-visual__cheek face-visual__cheek--right" />
-        <div className="face-visual__burn" />
+        <div className={subjectClassName} style={hasFaceImage ? subjectStyle : undefined}>
+          {hasFaceImage ? (
+            <FaceRetouchCanvas
+              alt={options?.label ?? '얼굴 상태'}
+              mini={mini}
+              src={displayFaceImageUri ?? ''}
+              stage={visualStage}
+            />
+          ) : (
+            <div className="face-visual__head" />
+          )}
+        </div>
         {!mini && options?.showGuide && hasFaceImage ? <div className="face-visual__guide" /> : null}
         {!mini && options?.label ? <span className="face-visual__label">{options.label}</span> : null}
       </div>
