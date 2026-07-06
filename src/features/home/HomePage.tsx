@@ -591,6 +591,16 @@ function getStageCopy(stage: SunscreenStage) {
   }
 }
 
+function getPendingApplicationCopy() {
+  return {
+    badge: '기록 필요',
+    title: '선크림을 바른 직후 시간을 먼저 기록해 주세요.',
+    body: '얼굴 촬영 후 선크림을 바르면, 그 시각을 기준으로 다음 덧바르기 타이밍과 피부 변화를 계산합니다.',
+    button: '지금 선크림 바르기',
+    level: 8,
+  }
+}
+
 function getFaceToneClass(stage: SunscreenStage) {
   if (stage === 'fresh') {
     return 'face-visual face-visual--fresh'
@@ -751,8 +761,14 @@ export function HomePage() {
   const displayTemperature = captureScenario?.temperature ?? temperature
   const displayExposure = captureScenario?.exposureMinutes ?? adjustedExposure
   const displayStage = captureScenario?.stage ?? stage
-  const stageCopy = useMemo(() => getStageCopy(displayStage), [displayStage])
-  const nextAction = captureScenario?.nextAction ?? getNextAction(displayStage, displayHour)
+  const isAwaitingFirstApplication = !captureScenario && !lastAppliedAt
+  const stageCopy = useMemo(
+    () => (isAwaitingFirstApplication ? getPendingApplicationCopy() : getStageCopy(displayStage)),
+    [displayStage, isAwaitingFirstApplication],
+  )
+  const nextAction = captureScenario?.nextAction ?? (
+    isAwaitingFirstApplication ? '지금 선크림 바른 시간 기록' : getNextAction(displayStage, displayHour)
+  )
   const uvLevelCopy = getUvLevelCopy(displayUv)
   const uvToneClass = getUvToneClass(displayUv)
   const displayLastAppliedAt = captureScenario?.lastAppliedAt ?? lastAppliedAt
@@ -1128,7 +1144,11 @@ export function HomePage() {
       setCapturedImageUri(imageUri)
       setFaceScale(1)
       setFaceOffsetY(0)
-      setCameraMessage('촬영한 얼굴 이미지를 적용했어요. 이제 단계별 피부 변화가 이 얼굴 위에 반영됩니다.')
+      setCameraMessage(
+        lastAppliedAt
+          ? '촬영한 얼굴 이미지를 적용했어요. 이제 단계별 피부 변화가 이 얼굴 위에 반영됩니다.'
+          : '촬영한 얼굴 이미지를 적용했어요. 이제 선크림을 바른 직후 버튼을 눌러 시간을 기록해 주세요.',
+      )
     } catch (error) {
       if (error instanceof OpenCameraPermissionError) {
         appendDebug('카메라 권한 예외 발생')
@@ -1145,6 +1165,17 @@ export function HomePage() {
   }
 
   function handlePrimaryAction() {
+    if (!lastAppliedAt) {
+      const nextAppliedAt = new Date().toISOString()
+      window.localStorage.setItem(LAST_APPLIED_AT_KEY, nextAppliedAt)
+      if (userKey) {
+        window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, userKey)
+      }
+      setLastAppliedAt(nextAppliedAt)
+      setCameraMessage('선크림을 바른 시간을 기록했어요. 이제 이 시각을 기준으로 다음 덧바르기 타이밍을 계산합니다.')
+      return
+    }
+
     if (stage === 'fresh') {
       setCameraMessage('지금은 보호 상태예요. 다음 확인 시간에 다시 보면 됩니다.')
       return
@@ -1152,6 +1183,9 @@ export function HomePage() {
 
     const nextAppliedAt = new Date().toISOString()
     window.localStorage.setItem(LAST_APPLIED_AT_KEY, nextAppliedAt)
+    if (userKey) {
+      window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, userKey)
+    }
     setLastAppliedAt(nextAppliedAt)
     setCameraMessage('선크림을 다시 발랐어요. 얼굴 상태를 바로 안전 단계로 되돌렸습니다.')
   }
