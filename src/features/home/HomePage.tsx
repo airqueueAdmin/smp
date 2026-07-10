@@ -552,7 +552,7 @@ function getStageCopy(stage: SunscreenStage) {
       badge: '안전',
       title: '지금은 피부 보호막이 비교적 안정적이에요.',
       body: '지금처럼 제때 덧바르면 얼굴 변화가 크게 진행되지 않아요.',
-      button: '다음 확인 때 다시 보기',
+      button: '피부 보호 중',
       level: 18,
     }
   }
@@ -947,6 +947,7 @@ export function HomePage() {
           setHasStarted(true)
         } else {
           setNotificationMessage('알림 동의를 거부했어요. 알림 없이 계속 사용할 수 있습니다.')
+          setHasStarted(true)
         }
 
         cleanup()
@@ -960,6 +961,14 @@ export function HomePage() {
 
     return cleanup
   }
+
+  useEffect(() => {
+    if (isCaptureMode || hasStarted || hasNotificationAgreement || !NOTIFICATION_TEMPLATE_CODE) {
+      return
+    }
+
+    return requestNotificationOnboarding()
+  }, [hasNotificationAgreement, hasStarted, isCaptureMode])
 
   async function requestUserNameFromConsentedData() {
     if (userName) {
