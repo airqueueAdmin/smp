@@ -5,7 +5,6 @@ mTLS/
 .idea/
 .granite/
 
-*.md
 *.ait
 
 img*.png
@@ -14,3 +13,4 @@ submission-thumbnail.png
 
 .env
 .env.*
+!.env.example

@@ -21,6 +21,7 @@ const USER_INFO_DECRYPTION_KEY_BASE64 = process.env.APPS_IN_TOSS_USER_INFO_DECRY
 const USER_INFO_AAD = process.env.APPS_IN_TOSS_USER_INFO_AAD ?? ''
 const USER_INFO_AAD_BASE64 = process.env.APPS_IN_TOSS_USER_INFO_AAD_BASE64 ?? ''
 const DEFAULT_REMINDER_MINUTES = Number(process.env.DEFAULT_REMINDER_MINUTES ?? '120')
+const DEBUG_ENDPOINTS_ENABLED = /^(1|true)$/i.test(process.env.SMART_MESSAGE_DEBUG_ENDPOINTS ?? '')
 const STORE_DIR = resolve(__dirname, '..', '.server-data')
 const STORE_PATH = resolve(STORE_DIR, 'reminders.json')
 const AES_GCM_IV_LENGTH = 12
@@ -515,6 +516,11 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'GET' && request.url.startsWith('/api/reminders/status')) {
+    if (!DEBUG_ENDPOINTS_ENABLED) {
+      json(response, 404, { error: 'Not found' })
+      return
+    }
+
     const url = new URL(request.url, `http://localhost:${PORT}`)
     const userKey = url.searchParams.get('userKey')
     const anonKey = url.searchParams.get('anonKey')
@@ -532,6 +538,11 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'GET' && request.url === '/api/partner/mtls-check') {
+    if (!DEBUG_ENDPOINTS_ENABLED) {
+      json(response, 404, { error: 'Not found' })
+      return
+    }
+
     try {
       const result = await checkMtlsConnection()
 
@@ -590,6 +601,11 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'POST' && request.url === '/api/reminders/send-now') {
+    if (!DEBUG_ENDPOINTS_ENABLED) {
+      json(response, 404, { error: 'Not found' })
+      return
+    }
+
     try {
       const body = await readBody(request)
       const { userKey, anonKey, context = {} } = body
@@ -608,6 +624,11 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'POST' && request.url === '/api/reminders/send-test-now') {
+    if (!DEBUG_ENDPOINTS_ENABLED) {
+      json(response, 404, { error: 'Not found' })
+      return
+    }
+
     try {
       const body = await readBody(request)
       const { userKey, anonKey, context = {}, deploymentId } = body

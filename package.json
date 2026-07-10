@@ -10,7 +10,10 @@
     "dev:server": "node server/smart-message-server.mjs",
     "build": "ait build",
     "build:web": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "check:server": "node --check server/smart-message-server.mjs",
+    "verify": "npm run typecheck && npm run check:server && npm run build"
   },
   "dependencies": {
     "@apps-in-toss/web-bridge": "^2.10.2",

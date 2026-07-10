@@ -700,7 +700,7 @@ export function HomePage() {
     '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
   )
   const capture = searchParams.get('capture')
-  const [accessToken, setAccessToken] = useState(() => getInitialAccessToken(searchParams))
+  const [accessToken] = useState(() => getInitialAccessToken(searchParams))
   const captureScenario = useMemo(() => getCaptureScenario(capture), [capture])
   const { hour, uv, temperature } = useMemo(() => resolveAutoConditions(), [])
   const now = useMemo(() => new Date(), [])
@@ -1461,24 +1461,22 @@ export function HomePage() {
         <section className="content-panel content-panel--primary">
           <div className="toolbar-row">
             <div>
-              <p className="content-panel__eyebrow">Before You Start</p>
-              <h3 className="content-panel__title">앱을 나간 뒤에도 알림 받을지 먼저 정해요</h3>
+              <p className="content-panel__eyebrow">Notification</p>
+              <h3 className="content-panel__title">알림 동의 확인이 필요해요</h3>
             </div>
-            <span className="status-badge">
-              {notificationAgreement === 'agreementRejected' ? '건너뜀' : '시작 전'}
-            </span>
+            <span className="status-badge">{notificationAgreement === 'agreementRejected' ? '거부됨' : '재시도'}</span>
           </div>
 
           <div className="form-stack">
             <p className="helper-text">
-              백그라운드 알림은 서비스 안에서 다시 묻지 않고, 시작 전에 한 번만 동의를 받습니다.
+              앱 실행 직후 알림 동의 화면을 자동으로 요청합니다. 화면이 보이지 않았거나 실패했다면 여기서 다시 시도할 수 있어요.
             </p>
             <p className="helper-text helper-text--tight">{notificationMessage}</p>
             <button type="button" className="primary-action primary-action--blue" onClick={requestNotificationOnboarding}>
-              알림 동의하고 시작
+              알림 동의 다시 요청
             </button>
             <button type="button" className="primary-action" onClick={() => setHasStarted(true)}>
-              알림 없이 시작
+              알림 없이 계속
             </button>
           </div>
         </section>
