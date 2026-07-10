@@ -3,7 +3,7 @@ import { defineConfig } from '@apps-in-toss/web-framework/config'
 export default defineConfig({
   appName: 'summer-ping',
   brand: {
-    displayName: 'summer-ping',
+    displayName: '썸머핑',
     primaryColor: '#1b64da',
     icon: 'https://static.toss.im/appsintoss/55493/71db40ed-66b3-4fba-ab49-81c33fa423e0.png',
   },
