@@ -462,7 +462,7 @@ function getCaptureScenario(capture: string | null): CaptureScenario | null {
         lastAppliedAt: '2026-07-02T11:54:00+09:00',
         nextAction: '지금 덧바를 시간',
         headline: '얼굴 변화로 덧바를 타이밍을 확인해요',
-        description: '실제 얼굴 변화로 다시 발라야 할 순간을 알려주는 Summer Ping',
+        description: '실제 얼굴 변화로 다시 발라야 할 순간을 알려주는 summer-ping',
         cameraMessage: '자외선이 강한 시간대에는 얼굴 변화가 더 빠르게 보입니다.',
       }
     default:
@@ -1159,7 +1159,7 @@ export function HomePage() {
             <section className="submission-hero">
               <div className="submission-hero__row">
                 <div>
-                  <p className="submission-hero__eyebrow">Summer Ping</p>
+                  <p className="submission-hero__eyebrow">summer-ping</p>
                   <h2 className="submission-hero__title">{captureScenario.headline}</h2>
                   <p className="submission-hero__description">{captureScenario.description}</p>
                 </div>
@@ -1338,7 +1338,7 @@ export function HomePage() {
           <>
             <section className="submission-wide-hero">
               <div className="submission-wide-hero__copy">
-                <p className="submission-hero__eyebrow">Summer Ping</p>
+                <p className="submission-hero__eyebrow">summer-ping</p>
                 <h2 className="submission-wide-hero__title">{captureScenario.headline}</h2>
                 <p className="submission-wide-hero__description">{captureScenario.description}</p>
                 <div className="submission-wide-hero__chips">
@@ -1485,7 +1485,7 @@ export function HomePage() {
       {(isCaptureMode || hasStarted) && (
         <>
       <section className="hero-section">
-        <p className="eyebrow">Summer Ping</p>
+        <p className="eyebrow">summer-ping</p>
         <h2 className="hero-title">얼굴 변화로 덧바를 타이밍을 확인해요</h2>
         <p className="hero-description">
           {userName ? `${userName}님, ` : ''}

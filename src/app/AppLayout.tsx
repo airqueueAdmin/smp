@@ -19,7 +19,7 @@ export function AppLayout() {
       >
         {!isCaptureMode && (
           <header className="app-header">
-            <p className="app-header__eyebrow">Summer Ping · 퍼스널 선케어</p>
+            <p className="app-header__eyebrow">summer-ping · 퍼스널 선케어</p>
             <h1 className="app-header__title">외출 중에도 선케어 타이밍을 놓치지 마세요</h1>
             <p className="app-header__description">
               얼굴 변화와 자외선 강도를 바탕으로 덧바를 시점을 안내하는 선케어 서비스입니다.
