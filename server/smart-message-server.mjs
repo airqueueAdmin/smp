@@ -256,7 +256,7 @@ function normalizeLoginMeResult(result) {
   }
 }
 
-async function sendSmartMessage({ userKey, context }) {
+async function sendSmartMessage({ userKey, anonKey, context }) {
   if (!validateServerConfig()) {
     throw new Error(
       'SMART_MESSAGE_TEMPLATE_SET_CODE와 mTLS 인증서/키 환경변수가 필요합니다. APPS_IN_TOSS_CERT_PATH 또는 APPS_IN_TOSS_CERT_PEM(_BASE64), APPS_IN_TOSS_KEY_PATH 또는 APPS_IN_TOSS_KEY_PEM(_BASE64)를 설정하세요.',
@@ -266,9 +266,7 @@ async function sendSmartMessage({ userKey, context }) {
   return partnerRequest({
     path: '/api-partner/v1/apps-in-toss/messenger/send-message',
     method: 'POST',
-    headers: {
-      'x-toss-user-key': String(userKey),
-    },
+    headers: getSmartMessageRecipientHeaders({ userKey, anonKey }),
     body: {
       templateSetCode: TEMPLATE_SET_CODE,
       context,
@@ -276,7 +274,7 @@ async function sendSmartMessage({ userKey, context }) {
   })
 }
 
-async function sendSmartTestMessage({ userKey, context, deploymentId }) {
+async function sendSmartTestMessage({ userKey, anonKey, context, deploymentId }) {
   if (!validateServerConfig()) {
     throw new Error(
       'SMART_MESSAGE_TEMPLATE_SET_CODE와 mTLS 인증서/키 환경변수가 필요합니다. APPS_IN_TOSS_CERT_PATH 또는 APPS_IN_TOSS_CERT_PEM(_BASE64), APPS_IN_TOSS_KEY_PATH 또는 APPS_IN_TOSS_KEY_PEM(_BASE64)를 설정하세요.',
@@ -292,9 +290,7 @@ async function sendSmartTestMessage({ userKey, context, deploymentId }) {
   return partnerRequest({
     path: '/api-partner/v1/apps-in-toss/messenger/send-test-message',
     method: 'POST',
-    headers: {
-      'x-toss-user-key': String(userKey),
-    },
+    headers: getSmartMessageRecipientHeaders({ userKey, anonKey }),
     body: {
       templateSetCode: TEMPLATE_SET_CODE,
       deploymentId: resolvedDeploymentId,
@@ -311,6 +307,49 @@ async function fetchLoginMe(accessToken) {
       Authorization: `Bearer ${accessToken}`,
     },
   })
+}
+
+function getSmartMessageRecipientHeaders({ userKey, anonKey }) {
+  const hasUserKey = typeof userKey === 'string' || typeof userKey === 'number'
+  const hasAnonKey = typeof anonKey === 'string' || typeof anonKey === 'number'
+
+  if (hasUserKey === hasAnonKey) {
+    throw new Error('스마트 발송에는 userKey 또는 anonKey 중 하나만 전달해야 합니다.')
+  }
+
+  if (hasUserKey) {
+    return {
+      'x-user-key': String(userKey),
+    }
+  }
+
+  return {
+    'x-anon-key': String(anonKey),
+  }
+}
+
+function getReminderRecipient(reminder) {
+  if (reminder?.userKey) {
+    return { userKey: String(reminder.userKey) }
+  }
+
+  if (reminder?.anonKey) {
+    return { anonKey: String(reminder.anonKey) }
+  }
+
+  return null
+}
+
+function getReminderStoreKey({ userKey, anonKey }) {
+  if (userKey) {
+    return `user:${String(userKey)}`
+  }
+
+  if (anonKey) {
+    return `anon:${String(anonKey)}`
+  }
+
+  throw new Error('리마인드 저장에는 userKey 또는 anonKey 중 하나가 필요합니다.')
 }
 
 async function partnerRequest({ path, method, headers = {}, body }) {
@@ -435,6 +474,12 @@ async function processDueReminders() {
     }
 
     try {
+      const recipient = getReminderRecipient(reminder)
+
+      if (!recipient) {
+        throw new Error('리마인드 대상 userKey 또는 anonKey가 없습니다.')
+      }
+
       const context = {
         appliedAt: reminder.lastAppliedAt,
         nextReminderAt: reminder.nextReminderAt,
@@ -442,7 +487,7 @@ async function processDueReminders() {
       }
 
       const result = await sendSmartMessage({
-        userKey: reminder.userKey,
+        ...recipient,
         context,
       })
 
@@ -472,8 +517,12 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url.startsWith('/api/reminders/status')) {
     const url = new URL(request.url, `http://localhost:${PORT}`)
     const userKey = url.searchParams.get('userKey')
+    const anonKey = url.searchParams.get('anonKey')
     const store = loadStore()
-    const reminder = userKey ? store.reminders[userKey] : null
+    const reminderKey = userKey ? getReminderStoreKey({ userKey }) : anonKey ? getReminderStoreKey({ anonKey }) : ''
+    const reminder = reminderKey
+      ? store.reminders[reminderKey] ?? (userKey ? store.reminders[String(userKey)] : null)
+      : null
 
     json(response, 200, {
       configured: validateServerConfig(),
@@ -499,10 +548,10 @@ const server = createServer(async (request, response) => {
   if (request.method === 'POST' && request.url === '/api/reminders/schedule') {
     try {
       const body = await readBody(request)
-      const { userKey, lastAppliedAt, outdoorTime = 'medium', notificationAgreement = 'unknown' } = body
+      const { userKey, anonKey, lastAppliedAt, outdoorTime = 'medium', notificationAgreement = 'unknown' } = body
 
-      if (!userKey || !lastAppliedAt) {
-        json(response, 400, { error: 'userKey와 lastAppliedAt이 필요합니다.' })
+      if ((!userKey && !anonKey) || (userKey && anonKey) || !lastAppliedAt) {
+        json(response, 400, { error: 'userKey 또는 anonKey 중 하나와 lastAppliedAt이 필요합니다.' })
         return
       }
 
@@ -510,9 +559,11 @@ const server = createServer(async (request, response) => {
       const nextReminderAtMs = new Date(lastAppliedAt).getTime() + reminderMinutes * 60 * 1000
       const nextReminderAt = new Date(nextReminderAtMs).toISOString()
       const store = loadStore()
+      const reminderKey = getReminderStoreKey({ userKey, anonKey })
 
-      store.reminders[String(userKey)] = {
-        userKey: String(userKey),
+      store.reminders[reminderKey] = {
+        userKey: userKey ? String(userKey) : null,
+        anonKey: anonKey ? String(anonKey) : null,
         lastAppliedAt,
         outdoorTime,
         reminderMinutes,
@@ -541,14 +592,14 @@ const server = createServer(async (request, response) => {
   if (request.method === 'POST' && request.url === '/api/reminders/send-now') {
     try {
       const body = await readBody(request)
-      const { userKey, context = {} } = body
+      const { userKey, anonKey, context = {} } = body
 
-      if (!userKey) {
-        json(response, 400, { error: 'userKey가 필요합니다.' })
+      if ((!userKey && !anonKey) || (userKey && anonKey)) {
+        json(response, 400, { error: 'userKey 또는 anonKey 중 하나가 필요합니다.' })
         return
       }
 
-      const result = await sendSmartMessage({ userKey, context })
+      const result = await sendSmartMessage({ userKey, anonKey, context })
       json(response, 200, { result })
     } catch (error) {
       json(response, 500, { error: error instanceof Error ? error.message : String(error) })
@@ -559,14 +610,14 @@ const server = createServer(async (request, response) => {
   if (request.method === 'POST' && request.url === '/api/reminders/send-test-now') {
     try {
       const body = await readBody(request)
-      const { userKey, context = {}, deploymentId } = body
+      const { userKey, anonKey, context = {}, deploymentId } = body
 
-      if (!userKey) {
-        json(response, 400, { error: 'userKey가 필요합니다.' })
+      if ((!userKey && !anonKey) || (userKey && anonKey)) {
+        json(response, 400, { error: 'userKey 또는 anonKey 중 하나가 필요합니다.' })
         return
       }
 
-      const result = await sendSmartTestMessage({ userKey, context, deploymentId })
+      const result = await sendSmartTestMessage({ userKey, anonKey, context, deploymentId })
       json(response, 200, { result })
     } catch (error) {
       json(response, 500, { error: error instanceof Error ? error.message : String(error) })
