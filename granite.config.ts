@@ -5,7 +5,7 @@ export default defineConfig({
   brand: {
     displayName: 'Summer Ping',
     primaryColor: '#1b64da',
-    icon: '',
+    icon: 'https://static.toss.im/appsintoss/55493/71db40ed-66b3-4fba-ab49-81c33fa423e0.png',
   },
   web: {
     host: 'localhost',
