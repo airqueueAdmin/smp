@@ -703,6 +703,7 @@ export function HomePage() {
   const [faceOffsetY, setFaceOffsetY] = useState(0)
   const [isCameraGuideOpen, setIsCameraGuideOpen] = useState(false)
   const [isCameraStreamReady, setIsCameraStreamReady] = useState(false)
+  const [isSystemCameraFallbackVisible, setIsSystemCameraFallbackVisible] = useState(false)
   const [cameraGuideMessage, setCameraGuideMessage] = useState('얼굴을 가이드 안에 맞춰 촬영해 주세요.')
   const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
@@ -1010,11 +1011,13 @@ export function HomePage() {
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraGuideMessage('앱 내 카메라를 열 수 없어 기본 카메라로 촬영해 주세요.')
         setIsCameraStreamReady(false)
+        setIsSystemCameraFallbackVisible(true)
         return
       }
 
       try {
         setIsCameraStreamReady(false)
+        setIsSystemCameraFallbackVisible(false)
         setCameraGuideMessage('카메라를 준비하고 있어요.')
 
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -1040,9 +1043,11 @@ export function HomePage() {
 
         setCameraGuideMessage('얼굴을 가이드 안에 맞춘 뒤 촬영해 주세요.')
         setIsCameraStreamReady(true)
+        setIsSystemCameraFallbackVisible(false)
       } catch (error) {
         console.error('앱 내 카메라를 여는 데 실패했어요:', error)
         stopGuideCamera()
+        setIsSystemCameraFallbackVisible(true)
         setCameraGuideMessage('앱 내 카메라를 열 수 없어 기본 카메라로 촬영해 주세요.')
       }
     }
@@ -1167,6 +1172,7 @@ export function HomePage() {
     }
 
     setCameraGuideMessage('얼굴을 가이드 안에 맞춰 촬영해 주세요.')
+    setIsSystemCameraFallbackVisible(false)
     setIsCameraGuideOpen(true)
   }
 
@@ -1637,17 +1643,21 @@ export function HomePage() {
             <p className="helper-text helper-text--tight">{cameraGuideMessage}</p>
 
             <div className="camera-guide-dialog__actions">
-              <button
-                type="button"
-                className="primary-action primary-action--blue camera-guide-dialog__capture"
-                onClick={handleGuideCapture}
-                disabled={!isCameraStreamReady}
-              >
-                촬영
-              </button>
-              <button type="button" className="primary-action" onClick={handleSystemCameraCapture}>
-                기본 카메라 열기
-              </button>
+              {!isSystemCameraFallbackVisible && (
+                <button
+                  type="button"
+                  className="primary-action primary-action--blue camera-guide-dialog__capture"
+                  onClick={handleGuideCapture}
+                  disabled={!isCameraStreamReady}
+                >
+                  촬영
+                </button>
+              )}
+              {isSystemCameraFallbackVisible && (
+                <button type="button" className="primary-action" onClick={handleSystemCameraCapture}>
+                  기본 카메라 열기
+                </button>
+              )}
             </div>
           </div>
         </div>
