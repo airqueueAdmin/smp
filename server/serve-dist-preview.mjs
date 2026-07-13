@@ -2,7 +2,9 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { createServer } from 'node:http'
 
-const rootDir = join(process.cwd(), 'dist', 'web')
+const webDistDir = join(process.cwd(), 'dist', 'web')
+const viteDistDir = join(process.cwd(), 'dist')
+const rootDir = existsSync(join(webDistDir, 'index.html')) ? webDistDir : viteDistDir
 const port = Number(process.argv[2] ?? process.env.PREVIEW_PORT ?? '4173')
 
 const contentTypes = {

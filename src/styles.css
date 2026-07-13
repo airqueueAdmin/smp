@@ -491,10 +491,78 @@ select {
   width: 166px;
   height: 194px;
   transform: translateX(-50%);
-  border-radius: 82px 82px 72px 72px;
-  border: 2px dashed rgba(255, 255, 255, 0.82);
-  box-shadow: 0 0 0 999px rgba(17, 34, 68, 0.08);
+  z-index: 1;
   pointer-events: none;
+}
+
+.face-alignment-guide {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(62vw, 236px);
+  height: min(74vw, 292px);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.face-alignment-guide--compact {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+}
+
+.face-alignment-guide__oval {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 48% 48% 44% 44%;
+  box-shadow:
+    0 0 0 999px rgba(11, 21, 38, 0.2),
+    0 0 24px rgba(255, 255, 255, 0.24);
+}
+
+.face-alignment-guide__line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.face-alignment-guide__line--eyes {
+  left: 16%;
+  right: 16%;
+  top: 38%;
+  height: 1px;
+}
+
+.face-alignment-guide__line--nose {
+  left: 50%;
+  top: 18%;
+  bottom: 18%;
+  width: 1px;
+}
+
+.face-alignment-guide__line--chin {
+  left: 28%;
+  right: 28%;
+  bottom: 14%;
+  height: 1px;
+}
+
+.face-alignment-guide__mark {
+  position: absolute;
+  top: calc(38% - 5px);
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.84);
+  border-radius: 50%;
+}
+
+.face-alignment-guide__mark--left-eye {
+  left: calc(35% - 5px);
+}
+
+.face-alignment-guide__mark--right-eye {
+  right: calc(35% - 5px);
 }
 
 .face-visual__fx {
@@ -795,6 +863,142 @@ select {
 
 .camera-panel {
   margin-top: 16px;
+}
+
+.face-capture-guide-card {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 20px;
+  background: #f8fbff;
+  border: 1px solid rgba(27, 100, 218, 0.1);
+}
+
+.face-capture-guide-card__preview {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  min-height: 132px;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.18), transparent 30%),
+    linear-gradient(180deg, #91bbea 0%, #5279ab 100%);
+}
+
+.face-capture-guide-card__preview .face-alignment-guide {
+  width: 72px;
+  height: 92px;
+}
+
+.face-capture-guide-card strong {
+  display: block;
+  font-size: 15px;
+  color: #191f28;
+}
+
+.face-capture-guide-card p {
+  margin: 6px 0 0;
+  color: #4e5968;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.camera-guide-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 15, 28, 0.7);
+}
+
+.camera-guide-dialog__surface {
+  width: min(100%, 420px);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+
+.camera-guide-dialog__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.camera-guide-dialog__close {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: #f2f4f6;
+  color: #333d4b;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.camera-guide-preview {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.12), transparent 30%),
+    #111827;
+}
+
+.camera-guide-preview__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.camera-guide-preview .face-alignment-guide {
+  z-index: 2;
+}
+
+.camera-guide-preview__status {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  width: min(78%, 260px);
+  padding: 12px 14px;
+  border-radius: 16px;
+  transform: translate(-50%, -50%);
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.camera-guide-dialog__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.camera-guide-dialog__actions .primary-action {
+  margin-top: 0;
+}
+
+.camera-guide-dialog__capture:disabled {
+  background: #d1d6db;
+  color: #ffffff;
 }
 
 .notification-panel {
