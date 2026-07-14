@@ -5,6 +5,7 @@ import {
   requestNotificationAgreement,
 } from '@apps-in-toss/web-framework'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 
 type SunscreenStage = 'fresh' | 'fading' | 'warning' | 'burned'
@@ -704,6 +705,7 @@ export function HomePage() {
   const [isCameraCaptureOpen, setIsCameraCaptureOpen] = useState(false)
   const [isCameraStreamReady, setIsCameraStreamReady] = useState(false)
   const [isNativeCameraFallbackVisible, setIsNativeCameraFallbackVisible] = useState(false)
+  const [cameraPreviewImageUri, setCameraPreviewImageUri] = useState<string | null>(null)
   const [cameraCaptureMessage, setCameraCaptureMessage] = useState('얼굴 윤곽을 가이드에 맞춘 뒤 촬영해 주세요.')
   const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
@@ -780,15 +782,48 @@ export function HomePage() {
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
 
-  function stopCameraCapture() {
-    cameraStreamRef.current?.getTracks().forEach((track) => track.stop())
+  function releaseCameraCapture(video = cameraVideoRef.current, stream = cameraStreamRef.current) {
+    stream?.getTracks().forEach((track) => track.stop())
     cameraStreamRef.current = null
 
-    if (cameraVideoRef.current) {
-      cameraVideoRef.current.srcObject = null
+    if (video) {
+      video.pause()
+      video.srcObject = null
+      video.removeAttribute('src')
+      video.load()
+    }
+  }
+
+  function stopCameraCapture() {
+    releaseCameraCapture()
+    setIsCameraStreamReady(false)
+  }
+
+  function createCameraFrameImage(video: HTMLVideoElement) {
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      return null
     }
 
-    setIsCameraStreamReady(false)
+    const targetAspectRatio = 3 / 4
+    const videoAspectRatio = video.videoWidth / video.videoHeight
+    const sourceWidth = videoAspectRatio > targetAspectRatio ? video.videoHeight * targetAspectRatio : video.videoWidth
+    const sourceHeight = videoAspectRatio > targetAspectRatio ? video.videoHeight : video.videoWidth / targetAspectRatio
+    const sourceX = (video.videoWidth - sourceWidth) / 2
+    const sourceY = (video.videoHeight - sourceHeight) / 2
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+
+    if (!context) {
+      return null
+    }
+
+    canvas.width = 720
+    canvas.height = 960
+    context.translate(canvas.width, 0)
+    context.scale(-1, 1)
+    context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height)
+
+    return canvas.toDataURL('image/jpeg', 0.92)
   }
 
   useEffect(() => {
@@ -1018,7 +1053,8 @@ export function HomePage() {
       try {
         setIsCameraStreamReady(false)
         setIsNativeCameraFallbackVisible(false)
-        setCameraCaptureMessage('카메라를 준비하고 있어요.')
+        setCameraPreviewImageUri(null)
+        setCameraCaptureMessage('카메라 프레임을 준비하고 있어요.')
 
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -1041,7 +1077,29 @@ export function HomePage() {
           await cameraVideoRef.current.play()
         }
 
-        setCameraCaptureMessage('얼굴 윤곽을 타원 안에 맞추고, 눈은 가로선에 맞춘 뒤 촬영해 주세요.')
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve())
+          })
+        })
+
+        if (cancelled) {
+          releaseCameraCapture(cameraVideoRef.current, stream)
+          return
+        }
+
+        const frameImageUri = cameraVideoRef.current ? createCameraFrameImage(cameraVideoRef.current) : null
+
+        releaseCameraCapture(cameraVideoRef.current, stream)
+
+        if (!frameImageUri) {
+          setIsNativeCameraFallbackVisible(true)
+          setCameraCaptureMessage('정지 화면을 만들 수 없어 기본 카메라로 촬영해 주세요.')
+          return
+        }
+
+        setCameraPreviewImageUri(frameImageUri)
+        setCameraCaptureMessage('멈춘 화면에서 얼굴 윤곽과 가이드라인을 확인한 뒤 촬영해 주세요.')
         setIsCameraStreamReady(true)
       } catch (error) {
         console.error('앱 안 촬영 화면을 여는 데 실패했어요:', error)
@@ -1170,46 +1228,37 @@ export function HomePage() {
       return
     }
 
-    setCameraCaptureMessage('카메라를 준비하고 있어요.')
+    setCameraPreviewImageUri(null)
+    setCameraCaptureMessage('카메라 프레임을 준비하고 있어요.')
     setIsNativeCameraFallbackVisible(false)
     setIsCameraCaptureOpen(true)
   }
 
   function handleCloseCameraCapture() {
-    setIsCameraCaptureOpen(false)
-    stopCameraCapture()
+    const video = cameraVideoRef.current
+    const stream = cameraStreamRef.current
+
+    flushSync(() => {
+      setIsCameraCaptureOpen(false)
+      setIsCameraStreamReady(false)
+      setIsNativeCameraFallbackVisible(false)
+      setCameraPreviewImageUri(null)
+      setCameraCaptureMessage('얼굴 윤곽을 가이드에 맞춘 뒤 촬영해 주세요.')
+    })
+
+    releaseCameraCapture(video, stream)
   }
 
   function handleCameraShutter() {
-    const video = cameraVideoRef.current
+    const imageUri = cameraPreviewImageUri ?? (cameraVideoRef.current ? createCameraFrameImage(cameraVideoRef.current) : null)
 
-    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-      setCameraCaptureMessage('카메라 영상이 준비된 뒤 촬영해 주세요.')
+    if (!imageUri) {
+      setCameraCaptureMessage('정지 화면이 준비된 뒤 촬영해 주세요.')
       return
     }
 
     try {
-      const targetAspectRatio = 3 / 4
-      const videoAspectRatio = video.videoWidth / video.videoHeight
-      const sourceWidth = videoAspectRatio > targetAspectRatio ? video.videoHeight * targetAspectRatio : video.videoWidth
-      const sourceHeight = videoAspectRatio > targetAspectRatio ? video.videoHeight : video.videoWidth / targetAspectRatio
-      const sourceX = (video.videoWidth - sourceWidth) / 2
-      const sourceY = (video.videoHeight - sourceHeight) / 2
-      const canvas = document.createElement('canvas')
-      const context = canvas.getContext('2d')
-
-      if (!context) {
-        setCameraCaptureMessage('촬영 이미지를 만들 수 없어 기본 카메라로 촬영해 주세요.')
-        setIsNativeCameraFallbackVisible(true)
-        return
-      }
-
-      canvas.width = 720
-      canvas.height = 960
-      context.translate(canvas.width, 0)
-      context.scale(-1, 1)
-      context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height)
-      applyCapturedFaceImage(canvas.toDataURL('image/jpeg', 0.92), '가이드에 맞춰 촬영한 얼굴 이미지를 적용했어요.')
+      applyCapturedFaceImage(imageUri, '가이드에 맞춰 촬영한 얼굴 이미지를 적용했어요.')
       handleCloseCameraCapture()
     } catch (error) {
       console.error('가이드 촬영에 실패했어요:', error)
@@ -1642,6 +1691,9 @@ export function HomePage() {
           <div className="camera-capture-view__body">
             <div className="camera-capture-preview">
               <video ref={cameraVideoRef} className="camera-capture-preview__video" autoPlay muted playsInline />
+              {cameraPreviewImageUri ? (
+                <img className="camera-capture-preview__image" src={cameraPreviewImageUri} alt="촬영 정지 화면" />
+              ) : null}
               <span className="camera-capture-preview__grid" aria-hidden="true" />
               <FaceAlignmentGuide />
               {!isCameraStreamReady && <div className="camera-capture-preview__status">{cameraCaptureMessage}</div>}

@@ -988,10 +988,22 @@ select {
 .camera-capture-preview__video {
   position: absolute;
   inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.camera-capture-preview__image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
 }
 
 .camera-capture-preview__grid {
