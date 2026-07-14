@@ -435,9 +435,9 @@ function getCaptureScenario(capture: string | null): CaptureScenario | null {
         exposureMinutes: 62,
         lastAppliedAt: '2026-07-02T09:24:00+09:00',
         nextAction: '30분 안에 덧바르기 권장',
-        headline: '촬영 전에 얼굴을 가이드에 맞춰요',
-        description: '촬영 화면에 눈, 중앙, 턱 기준선을 먼저 보여줘 얼굴이 결과 카드에 바로 맞게 들어오도록 했습니다.',
-        cameraMessage: '촬영 전에 기준선에 맞추고, 필요할 때만 확대와 위아래 위치를 미세 조정합니다.',
+        headline: '촬영 중 얼굴을 가이드에 맞춰요',
+        description: '촬영 화면에 격자와 얼굴 윤곽을 함께 띄워 얼굴이 결과 카드에 바로 맞게 들어오도록 했습니다.',
+        cameraMessage: '촬영 중에는 격자와 타원 가이드에 맞추고, 촬영 후 필요할 때만 위치를 미세 조정합니다.',
       }
     case 'reminder':
       return {
@@ -701,10 +701,10 @@ export function HomePage() {
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null)
   const [faceScale, setFaceScale] = useState(1)
   const [faceOffsetY, setFaceOffsetY] = useState(0)
-  const [isCameraGuideOpen, setIsCameraGuideOpen] = useState(false)
+  const [isCameraCaptureOpen, setIsCameraCaptureOpen] = useState(false)
   const [isCameraStreamReady, setIsCameraStreamReady] = useState(false)
-  const [isSystemCameraFallbackVisible, setIsSystemCameraFallbackVisible] = useState(false)
-  const [cameraGuideMessage, setCameraGuideMessage] = useState('얼굴을 가이드 안에 맞춰 촬영해 주세요.')
+  const [isNativeCameraFallbackVisible, setIsNativeCameraFallbackVisible] = useState(false)
+  const [cameraCaptureMessage, setCameraCaptureMessage] = useState('얼굴 윤곽을 가이드에 맞춘 뒤 촬영해 주세요.')
   const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
   const [userKey, setUserKey] = useState(() => getInitialUserKey())
@@ -780,7 +780,7 @@ export function HomePage() {
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
 
-  function stopGuideCamera() {
+  function stopCameraCapture() {
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop())
     cameraStreamRef.current = null
 
@@ -1001,24 +1001,24 @@ export function HomePage() {
   }, [hasNotificationAgreement, hasStarted, isCaptureMode])
 
   useEffect(() => {
-    if (!isCameraGuideOpen) {
+    if (!isCameraCaptureOpen) {
       return
     }
 
     let cancelled = false
 
-    async function startGuideCamera() {
+    async function startCameraCapture() {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraGuideMessage('앱 내 카메라를 열 수 없어 기본 카메라로 촬영해 주세요.')
+        setCameraCaptureMessage('앱 안 촬영 화면을 열 수 없어 기본 카메라로 촬영해 주세요.')
         setIsCameraStreamReady(false)
-        setIsSystemCameraFallbackVisible(true)
+        setIsNativeCameraFallbackVisible(true)
         return
       }
 
       try {
         setIsCameraStreamReady(false)
-        setIsSystemCameraFallbackVisible(false)
-        setCameraGuideMessage('카메라를 준비하고 있어요.')
+        setIsNativeCameraFallbackVisible(false)
+        setCameraCaptureMessage('카메라를 준비하고 있어요.')
 
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -1041,24 +1041,23 @@ export function HomePage() {
           await cameraVideoRef.current.play()
         }
 
-        setCameraGuideMessage('얼굴을 가이드 안에 맞춘 뒤 촬영해 주세요.')
+        setCameraCaptureMessage('얼굴 윤곽을 타원 안에 맞추고, 눈은 가로선에 맞춘 뒤 촬영해 주세요.')
         setIsCameraStreamReady(true)
-        setIsSystemCameraFallbackVisible(false)
       } catch (error) {
-        console.error('앱 내 카메라를 여는 데 실패했어요:', error)
-        stopGuideCamera()
-        setIsSystemCameraFallbackVisible(true)
-        setCameraGuideMessage('앱 내 카메라를 열 수 없어 기본 카메라로 촬영해 주세요.')
+        console.error('앱 안 촬영 화면을 여는 데 실패했어요:', error)
+        stopCameraCapture()
+        setIsNativeCameraFallbackVisible(true)
+        setCameraCaptureMessage('앱 안 촬영 화면을 열 수 없어 기본 카메라로 촬영해 주세요.')
       }
     }
 
-    startGuideCamera()
+    startCameraCapture()
 
     return () => {
       cancelled = true
-      stopGuideCamera()
+      stopCameraCapture()
     }
-  }, [isCameraGuideOpen])
+  }, [isCameraCaptureOpen])
 
   async function requestUserNameFromConsentedData() {
     if (userName) {
@@ -1165,64 +1164,71 @@ export function HomePage() {
   }
 
   async function handleOpenCamera() {
-    const canOpenGuide = await ensureUserNameForFaceCapture()
+    const canOpenCapture = await ensureUserNameForFaceCapture()
 
-    if (!canOpenGuide) {
+    if (!canOpenCapture) {
       return
     }
 
-    setCameraGuideMessage('얼굴을 가이드 안에 맞춰 촬영해 주세요.')
-    setIsSystemCameraFallbackVisible(false)
-    setIsCameraGuideOpen(true)
+    setCameraCaptureMessage('카메라를 준비하고 있어요.')
+    setIsNativeCameraFallbackVisible(false)
+    setIsCameraCaptureOpen(true)
   }
 
-  function handleCloseCameraGuide() {
-    setIsCameraGuideOpen(false)
-    stopGuideCamera()
+  function handleCloseCameraCapture() {
+    setIsCameraCaptureOpen(false)
+    stopCameraCapture()
   }
 
-  function handleGuideCapture() {
+  function handleCameraShutter() {
     const video = cameraVideoRef.current
 
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-      setCameraGuideMessage('카메라 영상이 준비된 뒤 촬영해 주세요.')
+      setCameraCaptureMessage('카메라 영상이 준비된 뒤 촬영해 주세요.')
       return
     }
 
     try {
-      const scale = Math.min(1, 720 / video.videoWidth)
-      const width = Math.round(video.videoWidth * scale)
-      const height = Math.round(video.videoHeight * scale)
+      const targetAspectRatio = 3 / 4
+      const videoAspectRatio = video.videoWidth / video.videoHeight
+      const sourceWidth = videoAspectRatio > targetAspectRatio ? video.videoHeight * targetAspectRatio : video.videoWidth
+      const sourceHeight = videoAspectRatio > targetAspectRatio ? video.videoHeight : video.videoWidth / targetAspectRatio
+      const sourceX = (video.videoWidth - sourceWidth) / 2
+      const sourceY = (video.videoHeight - sourceHeight) / 2
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
 
       if (!context) {
-        setCameraGuideMessage('촬영 이미지를 만들 수 없어요. 기본 카메라로 촬영해 주세요.')
+        setCameraCaptureMessage('촬영 이미지를 만들 수 없어 기본 카메라로 촬영해 주세요.')
+        setIsNativeCameraFallbackVisible(true)
         return
       }
 
-      canvas.width = width
-      canvas.height = height
-      context.translate(width, 0)
+      canvas.width = 720
+      canvas.height = 960
+      context.translate(canvas.width, 0)
       context.scale(-1, 1)
-      context.drawImage(video, 0, 0, width, height)
+      context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height)
       applyCapturedFaceImage(canvas.toDataURL('image/jpeg', 0.92), '가이드에 맞춰 촬영한 얼굴 이미지를 적용했어요.')
-      handleCloseCameraGuide()
+      handleCloseCameraCapture()
     } catch (error) {
       console.error('가이드 촬영에 실패했어요:', error)
-      setCameraGuideMessage('촬영에 실패했어요. 기본 카메라로 다시 시도해 주세요.')
+      setCameraCaptureMessage('촬영에 실패했어요. 다시 시도하거나 기본 카메라로 촬영해 주세요.')
+      setIsNativeCameraFallbackVisible(true)
     }
   }
 
-  async function handleSystemCameraCapture() {
+  async function captureFaceImage() {
     try {
+      setCameraCaptureMessage('기본 카메라를 열고 있어요.')
+      setCameraMessage('기본 카메라를 열고 있어요.')
+
       const permission = await openCamera.getPermission()
 
       if (permission !== 'allowed') {
         const requestedPermission = await openCamera.openPermissionDialog()
 
         if (requestedPermission !== 'allowed') {
-          setCameraGuideMessage('카메라 권한이 필요해요. 권한 허용 후 다시 촬영해 주세요.')
           setCameraMessage('카메라 권한이 필요해요. 권한을 허용해야 얼굴 이미지를 붙일 수 있어요.')
           return
         }
@@ -1231,16 +1237,16 @@ export function HomePage() {
       const response = await openCamera({ base64: true, maxWidth: 720 })
       const imageUri = `data:image/jpeg;base64,${response.dataUri}`
       applyCapturedFaceImage(imageUri, '촬영한 얼굴 이미지를 적용했어요.')
-      handleCloseCameraGuide()
+      handleCloseCameraCapture()
     } catch (error) {
       if (error instanceof OpenCameraPermissionError) {
-        setCameraGuideMessage('카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.')
+        setCameraCaptureMessage('카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.')
         setCameraMessage('카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.')
         return
       }
 
       console.error('사진을 가져오는 데 실패했어요:', error)
-      setCameraGuideMessage('기본 카메라 촬영에 실패했어요. 다시 시도해 주세요.')
+      setCameraCaptureMessage('기본 카메라 촬영에 실패했어요. 다시 시도해 주세요.')
       setCameraMessage('얼굴 촬영에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
     }
   }
@@ -1616,49 +1622,46 @@ export function HomePage() {
 
   return (
     <div className={isCaptureMode ? 'page-shell page-shell--capture' : 'page-shell'}>
-      {isCameraGuideOpen && (
-        <div className="camera-guide-dialog" role="dialog" aria-modal="true" aria-label="얼굴 촬영 가이드">
-          <div className="camera-guide-dialog__surface">
-            <div className="camera-guide-dialog__header">
-              <div>
-                <p className="content-panel__eyebrow">Camera Guide</p>
-                <h3 className="content-panel__title">얼굴 맞춰 촬영하기</h3>
-              </div>
-              <button
-                type="button"
-                className="camera-guide-dialog__close"
-                aria-label="촬영 가이드 닫기"
-                onClick={handleCloseCameraGuide}
-              >
-                ×
-              </button>
+      {isCameraCaptureOpen && (
+        <div className="camera-capture-view" role="dialog" aria-modal="true" aria-label="얼굴 촬영">
+          <div className="camera-capture-view__top">
+            <div>
+              <p className="camera-capture-view__eyebrow">Face Capture</p>
+              <h3 className="camera-capture-view__title">가이드에 맞춰 촬영</h3>
             </div>
+            <button
+              type="button"
+              className="camera-capture-view__close"
+              aria-label="촬영 화면 닫기"
+              onClick={handleCloseCameraCapture}
+            >
+              ×
+            </button>
+          </div>
 
-            <div className="camera-guide-preview">
-              <video ref={cameraVideoRef} className="camera-guide-preview__video" autoPlay muted playsInline />
+          <div className="camera-capture-view__body">
+            <div className="camera-capture-preview">
+              <video ref={cameraVideoRef} className="camera-capture-preview__video" autoPlay muted playsInline />
+              <span className="camera-capture-preview__grid" aria-hidden="true" />
               <FaceAlignmentGuide />
-              {!isCameraStreamReady && <div className="camera-guide-preview__status">{cameraGuideMessage}</div>}
+              {!isCameraStreamReady && <div className="camera-capture-preview__status">{cameraCaptureMessage}</div>}
             </div>
+            <p className="camera-capture-view__hint">{cameraCaptureMessage}</p>
+          </div>
 
-            <p className="helper-text helper-text--tight">{cameraGuideMessage}</p>
-
-            <div className="camera-guide-dialog__actions">
-              {!isSystemCameraFallbackVisible && (
-                <button
-                  type="button"
-                  className="primary-action primary-action--blue camera-guide-dialog__capture"
-                  onClick={handleGuideCapture}
-                  disabled={!isCameraStreamReady}
-                >
-                  촬영
-                </button>
-              )}
-              {isSystemCameraFallbackVisible && (
-                <button type="button" className="primary-action" onClick={handleSystemCameraCapture}>
-                  기본 카메라 열기
-                </button>
-              )}
-            </div>
+          <div className="camera-capture-view__actions">
+            <button
+              type="button"
+              className="camera-capture-view__shutter"
+              aria-label="촬영"
+              onClick={handleCameraShutter}
+              disabled={!isCameraStreamReady}
+            />
+            {isNativeCameraFallbackVisible && (
+              <button type="button" className="camera-capture-view__fallback" onClick={captureFaceImage}>
+                기본 카메라
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1869,8 +1872,8 @@ export function HomePage() {
                 <FaceAlignmentGuide />
               </div>
               <div>
-                <strong>촬영 전 얼굴 기준선</strong>
-                <p>눈은 가로선, 얼굴 중앙은 세로선, 턱은 아래 기준선에 맞추면 조정 없이 바로 반영돼요.</p>
+                <strong>촬영 중 얼굴 기준선</strong>
+                <p>카메라 화면에 격자와 얼굴 윤곽을 띄워 눈, 중앙, 턱 위치를 맞춘 뒤 촬영해요.</p>
               </div>
             </div>
 
@@ -1883,12 +1886,12 @@ export function HomePage() {
               {isUserNameRequestPending
                 ? '이름 정보 확인 중...'
                 : capturedImageUri
-                  ? '가이드 켜고 다시 촬영하기'
-                  : '가이드 켜고 촬영하기'}
+                  ? '가이드 보고 다시 촬영하기'
+                  : '가이드 보고 촬영하기'}
             </button>
             <p className="helper-text">
-              카메라로 얼굴을 촬영하면 바로 반영됩니다. 이후 선크림 상태에 따라 붉어짐과 피부변화가
-              이 얼굴 위에 덮입니다.
+              촬영 화면 안에서 격자와 얼굴 윤곽을 먼저 맞춥니다. 촬영 후에는 선크림 상태에 따라 붉어짐과 피부변화가
+              이 얼굴 위에 덮이고, 위치를 한 번 더 조절할 수 있어요.
             </p>
             {!userName && (
               <p className="helper-text helper-text--tight">

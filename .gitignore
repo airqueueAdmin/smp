@@ -10,6 +10,7 @@ mTLS/
 img*.png
 screenshot-*.png
 submission-thumbnail.png
+vite-dev*.log
 
 .env
 .env.*
