@@ -512,6 +512,49 @@ select {
   transform: none;
 }
 
+.face-alignment-guide--camera {
+  width: min(70vw, 260px);
+  height: min(88vw, 330px);
+  top: 38%;
+}
+
+.face-alignment-guide--camera .face-alignment-guide__oval {
+  border-width: 2.5px;
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.3);
+}
+
+.face-alignment-guide--camera .face-alignment-guide__line {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.face-alignment-guide--camera .face-alignment-guide__line--eyes {
+  left: 5%;
+  right: 5%;
+  top: 42%;
+  height: 2px;
+}
+
+.face-alignment-guide--camera .face-alignment-guide__line--nose {
+  top: 8%;
+  bottom: auto;
+  height: 42%;
+  width: 2px;
+}
+
+.face-alignment-guide--camera .face-alignment-guide__line--chin {
+  left: 50%;
+  right: auto;
+  top: 52%;
+  bottom: 9%;
+  width: 2px;
+  height: auto;
+}
+
+.face-alignment-guide--camera .face-alignment-guide__mark {
+  display: none;
+}
+
 .face-alignment-guide__oval {
   position: absolute;
   inset: 0;
@@ -921,68 +964,55 @@ select {
   position: fixed;
   inset: 0;
   z-index: 30;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 14px;
-  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 18px);
-  background: #07111f;
+  overflow: hidden;
+  background: #090909;
   color: #ffffff;
 }
 
-.camera-capture-view__top {
+.camera-capture-view__instruction {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 5;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  width: min(100%, 430px);
-  margin: 0 auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 80px;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 20px 14px;
+  background: rgba(31, 31, 32, 0.94);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.camera-capture-view__eyebrow {
-  margin: 0 0 4px;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.camera-capture-view__title {
-  margin: 0;
-  font-size: 20px;
-  line-height: 1.25;
-}
-
-.camera-capture-view__close {
+.camera-capture-view__step {
   display: inline-grid;
+  flex: 0 0 auto;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border: 0;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  background: #5272f6;
   color: #ffffff;
-  font-size: 25px;
-  line-height: 1;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.camera-capture-view__instruction p {
+  margin: 0;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .camera-capture-view__body {
-  min-height: 0;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 12px;
+  position: absolute;
+  inset: 0;
 }
 
 .camera-capture-preview {
-  position: relative;
-  width: min(100%, 430px);
-  aspect-ratio: 3 / 4;
-  max-height: calc(100vh - 218px);
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  border-radius: 28px;
-  background: #111827;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  background: #111111;
 }
 
 .camera-capture-preview__video {
@@ -1014,19 +1044,15 @@ select {
   position: absolute;
   inset: 0;
   z-index: 1;
-  background-image:
-    linear-gradient(to right, transparent calc(33.333% - 0.5px), rgba(255, 255, 255, 0.42) calc(33.333% - 0.5px), rgba(255, 255, 255, 0.42) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px)),
-    linear-gradient(to right, transparent calc(66.666% - 0.5px), rgba(255, 255, 255, 0.42) calc(66.666% - 0.5px), rgba(255, 255, 255, 0.42) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
-    linear-gradient(to bottom, transparent calc(33.333% - 0.5px), rgba(255, 255, 255, 0.42) calc(33.333% - 0.5px), rgba(255, 255, 255, 0.42) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px)),
-    linear-gradient(to bottom, transparent calc(66.666% - 0.5px), rgba(255, 255, 255, 0.42) calc(66.666% - 0.5px), rgba(255, 255, 255, 0.42) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
+  background: rgba(0, 0, 0, 0.05);
   pointer-events: none;
 }
 
 .camera-capture-preview__captured-badge {
   position: absolute;
-  left: 16px;
-  top: 16px;
-  z-index: 3;
+  left: 20px;
+  top: calc(env(safe-area-inset-top, 0px) + 98px);
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   min-height: 34px;
@@ -1040,17 +1066,15 @@ select {
 
 .camera-capture-preview .face-alignment-guide {
   z-index: 2;
-  width: min(68%, 250px);
-  height: min(78%, 326px);
 }
 
 .camera-capture-preview__status {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 70%;
   z-index: 3;
   width: min(78%, 270px);
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-radius: 16px;
   transform: translate(-50%, -50%);
   background: rgba(15, 23, 42, 0.78);
@@ -1060,22 +1084,16 @@ select {
   text-align: center;
 }
 
-.camera-capture-view__hint {
-  width: min(100%, 430px);
-  margin: 0 auto;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 13px;
-  line-height: 1.55;
-  text-align: center;
-}
-
 .camera-capture-view__actions {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 6;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  width: min(100%, 430px);
-  min-height: 72px;
-  margin: 0 auto;
+  min-height: 112px;
+  padding: 16px 22px calc(env(safe-area-inset-bottom, 0px) + 20px);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
 }
 
 .camera-capture-view__confirm-actions {
@@ -1087,16 +1105,31 @@ select {
 
 .camera-capture-view__shutter {
   grid-column: 2;
-  width: 68px;
-  height: 68px;
-  border: 5px solid rgba(255, 255, 255, 0.9);
+  width: 72px;
+  height: 72px;
+  border: 4px solid rgba(255, 255, 255, 0.96);
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.18);
+  background: transparent;
+  box-shadow: inset 0 0 0 5px rgba(0, 0, 0, 0.32), 0 0 0 4px rgba(255, 255, 255, 0.26);
 }
 
 .camera-capture-view__shutter:disabled {
   opacity: 0.42;
+}
+
+.camera-capture-view__cancel {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(40, 40, 42, 0.76);
+  color: #ffffff;
+  font-size: 28px;
+  line-height: 1;
 }
 
 .camera-capture-view__fallback {

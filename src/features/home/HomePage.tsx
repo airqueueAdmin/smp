@@ -399,9 +399,17 @@ function FaceRetouchCanvas({
   return <canvas ref={canvasRef} className="face-visual__canvas" role="img" aria-label={alt} />
 }
 
-function FaceAlignmentGuide({ compact = false }: { compact?: boolean }) {
+function FaceAlignmentGuide({ compact = false, camera = false }: { compact?: boolean; camera?: boolean }) {
+  const className = [
+    'face-alignment-guide',
+    compact ? 'face-alignment-guide--compact' : '',
+    camera ? 'face-alignment-guide--camera' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className={compact ? 'face-alignment-guide face-alignment-guide--compact' : 'face-alignment-guide'} aria-hidden="true">
+    <div className={className} aria-hidden="true">
       <div className="face-alignment-guide__oval" />
       <div className="face-alignment-guide__line face-alignment-guide__line--eyes" />
       <div className="face-alignment-guide__line face-alignment-guide__line--nose" />
@@ -799,6 +807,19 @@ export function HomePage() {
     releaseCameraCapture()
     setIsCameraStreamReady(false)
   }
+
+  useEffect(() => {
+    if (!isCameraCaptureOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isCameraCaptureOpen])
 
   function createCameraFrameImage(video: HTMLVideoElement) {
     if (video.videoWidth === 0 || video.videoHeight === 0) {
@@ -1678,19 +1699,9 @@ export function HomePage() {
     <div className={isCaptureMode ? 'page-shell page-shell--capture' : 'page-shell'}>
       {isCameraCaptureOpen && (
         <div className="camera-capture-view" role="dialog" aria-modal="true" aria-label="얼굴 촬영">
-          <div className="camera-capture-view__top">
-            <div>
-              <p className="camera-capture-view__eyebrow">Face Capture</p>
-              <h3 className="camera-capture-view__title">{cameraPreviewImageUri ? '촬영 확인' : '가이드에 맞춰 촬영'}</h3>
-            </div>
-            <button
-              type="button"
-              className="camera-capture-view__close"
-              aria-label="촬영 화면 닫기"
-              onClick={handleCloseCameraCapture}
-            >
-              ×
-            </button>
+          <div className="camera-capture-view__instruction" aria-live="polite">
+            <span className="camera-capture-view__step">1</span>
+            <p>{cameraPreviewImageUri ? '촬영한 사진이 가이드에 맞는지 확인해 주세요.' : '촬영이 시작되면 라인 안에 얼굴을 맞춰주세요.'}</p>
           </div>
 
           <div className="camera-capture-view__body">
@@ -1700,11 +1711,10 @@ export function HomePage() {
                 <img className="camera-capture-preview__image" src={cameraPreviewImageUri} alt="촬영 정지 화면" />
               ) : null}
               <span className="camera-capture-preview__grid" aria-hidden="true" />
-              <FaceAlignmentGuide />
+              <FaceAlignmentGuide camera />
               {!isCameraStreamReady && !cameraPreviewImageUri && <div className="camera-capture-preview__status">{cameraCaptureMessage}</div>}
               {cameraPreviewImageUri ? <div className="camera-capture-preview__captured-badge">촬영 완료</div> : null}
             </div>
-            <p className="camera-capture-view__hint">{cameraCaptureMessage}</p>
           </div>
 
           <div className="camera-capture-view__actions">
@@ -1718,13 +1728,23 @@ export function HomePage() {
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                className="camera-capture-view__shutter"
-                aria-label="촬영"
-                onClick={handleCameraShutter}
-                disabled={!isCameraStreamReady}
-              />
+              <>
+                <button
+                  type="button"
+                  className="camera-capture-view__cancel"
+                  aria-label="촬영 화면 닫기"
+                  onClick={handleCloseCameraCapture}
+                >
+                  ×
+                </button>
+                <button
+                  type="button"
+                  className="camera-capture-view__shutter"
+                  aria-label="촬영"
+                  onClick={handleCameraShutter}
+                  disabled={!isCameraStreamReady}
+                />
+              </>
             )}
             {isNativeCameraFallbackVisible && !cameraPreviewImageUri && (
               <button type="button" className="camera-capture-view__fallback" onClick={captureFaceImage}>
