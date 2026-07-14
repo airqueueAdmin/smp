@@ -991,9 +991,13 @@ select {
   z-index: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
+  opacity: 1;
   object-fit: cover;
   transform: scaleX(-1);
+}
+
+.camera-capture-preview--frozen .camera-capture-preview__video {
+  opacity: 0;
 }
 
 .camera-capture-preview__image {
@@ -1016,6 +1020,22 @@ select {
     linear-gradient(to bottom, transparent calc(33.333% - 0.5px), rgba(255, 255, 255, 0.42) calc(33.333% - 0.5px), rgba(255, 255, 255, 0.42) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px)),
     linear-gradient(to bottom, transparent calc(66.666% - 0.5px), rgba(255, 255, 255, 0.42) calc(66.666% - 0.5px), rgba(255, 255, 255, 0.42) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
   pointer-events: none;
+}
+
+.camera-capture-preview__captured-badge {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(27, 100, 218, 0.92);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .camera-capture-preview .face-alignment-guide {
@@ -1058,6 +1078,13 @@ select {
   margin: 0 auto;
 }
 
+.camera-capture-view__confirm-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .camera-capture-view__shutter {
   grid-column: 2;
   width: 68px;
@@ -1083,6 +1110,24 @@ select {
   color: #ffffff;
   font-size: 13px;
   font-weight: 700;
+}
+
+.camera-capture-view__primary-action,
+.camera-capture-view__secondary-action {
+  min-height: 52px;
+  border: 0;
+  border-radius: 16px;
+  font-weight: 800;
+}
+
+.camera-capture-view__primary-action {
+  background: #ffffff;
+  color: #1b64da;
+}
+
+.camera-capture-view__secondary-action {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
 }
 
 .notification-panel {

@@ -706,6 +706,7 @@ export function HomePage() {
   const [isCameraStreamReady, setIsCameraStreamReady] = useState(false)
   const [isNativeCameraFallbackVisible, setIsNativeCameraFallbackVisible] = useState(false)
   const [cameraPreviewImageUri, setCameraPreviewImageUri] = useState<string | null>(null)
+  const [cameraCaptureRetryKey, setCameraCaptureRetryKey] = useState(0)
   const [cameraCaptureMessage, setCameraCaptureMessage] = useState('얼굴 윤곽을 가이드에 맞춘 뒤 촬영해 주세요.')
   const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
   const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
@@ -1054,7 +1055,7 @@ export function HomePage() {
         setIsCameraStreamReady(false)
         setIsNativeCameraFallbackVisible(false)
         setCameraPreviewImageUri(null)
-        setCameraCaptureMessage('카메라 프레임을 준비하고 있어요.')
+        setCameraCaptureMessage('카메라를 준비하고 있어요.')
 
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -1077,29 +1078,7 @@ export function HomePage() {
           await cameraVideoRef.current.play()
         }
 
-        await new Promise<void>((resolve) => {
-          window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => resolve())
-          })
-        })
-
-        if (cancelled) {
-          releaseCameraCapture(cameraVideoRef.current, stream)
-          return
-        }
-
-        const frameImageUri = cameraVideoRef.current ? createCameraFrameImage(cameraVideoRef.current) : null
-
-        releaseCameraCapture(cameraVideoRef.current, stream)
-
-        if (!frameImageUri) {
-          setIsNativeCameraFallbackVisible(true)
-          setCameraCaptureMessage('정지 화면을 만들 수 없어 기본 카메라로 촬영해 주세요.')
-          return
-        }
-
-        setCameraPreviewImageUri(frameImageUri)
-        setCameraCaptureMessage('멈춘 화면에서 얼굴 윤곽과 가이드라인을 확인한 뒤 촬영해 주세요.')
+        setCameraCaptureMessage('얼굴 윤곽을 타원 안에 맞추고, 눈은 가로선에 맞춘 뒤 셔터를 눌러 주세요.')
         setIsCameraStreamReady(true)
       } catch (error) {
         console.error('앱 안 촬영 화면을 여는 데 실패했어요:', error)
@@ -1115,7 +1094,7 @@ export function HomePage() {
       cancelled = true
       stopCameraCapture()
     }
-  }, [isCameraCaptureOpen])
+  }, [cameraCaptureRetryKey, isCameraCaptureOpen])
 
   async function requestUserNameFromConsentedData() {
     if (userName) {
@@ -1229,7 +1208,7 @@ export function HomePage() {
     }
 
     setCameraPreviewImageUri(null)
-    setCameraCaptureMessage('카메라 프레임을 준비하고 있어요.')
+    setCameraCaptureMessage('카메라를 준비하고 있어요.')
     setIsNativeCameraFallbackVisible(false)
     setIsCameraCaptureOpen(true)
   }
@@ -1250,21 +1229,43 @@ export function HomePage() {
   }
 
   function handleCameraShutter() {
-    const imageUri = cameraPreviewImageUri ?? (cameraVideoRef.current ? createCameraFrameImage(cameraVideoRef.current) : null)
+    const video = cameraVideoRef.current
+    const stream = cameraStreamRef.current
+    const imageUri = video ? createCameraFrameImage(video) : null
 
     if (!imageUri) {
-      setCameraCaptureMessage('정지 화면이 준비된 뒤 촬영해 주세요.')
+      setCameraCaptureMessage('카메라 화면이 준비된 뒤 촬영해 주세요.')
       return
     }
 
     try {
-      applyCapturedFaceImage(imageUri, '가이드에 맞춰 촬영한 얼굴 이미지를 적용했어요.')
-      handleCloseCameraCapture()
+      setCameraPreviewImageUri(imageUri)
+      setIsCameraStreamReady(false)
+      setCameraCaptureMessage('촬영 완료. 가이드에 맞는지 확인한 뒤 이 사진을 사용해 주세요.')
+      releaseCameraCapture(video, stream)
     } catch (error) {
       console.error('가이드 촬영에 실패했어요:', error)
       setCameraCaptureMessage('촬영에 실패했어요. 다시 시도하거나 기본 카메라로 촬영해 주세요.')
       setIsNativeCameraFallbackVisible(true)
     }
+  }
+
+  function handleUseCameraPreview() {
+    if (!cameraPreviewImageUri) {
+      setCameraCaptureMessage('사용할 촬영 화면이 아직 없어요.')
+      return
+    }
+
+    applyCapturedFaceImage(cameraPreviewImageUri, '가이드에 맞춰 촬영한 얼굴 이미지를 적용했어요.')
+    handleCloseCameraCapture()
+  }
+
+  function handleRetakeCameraPreview() {
+    setCameraPreviewImageUri(null)
+    setIsCameraStreamReady(false)
+    setIsNativeCameraFallbackVisible(false)
+    setCameraCaptureMessage('카메라를 다시 준비하고 있어요.')
+    setCameraCaptureRetryKey((current) => current + 1)
   }
 
   async function captureFaceImage() {
@@ -1676,7 +1677,7 @@ export function HomePage() {
           <div className="camera-capture-view__top">
             <div>
               <p className="camera-capture-view__eyebrow">Face Capture</p>
-              <h3 className="camera-capture-view__title">가이드에 맞춰 촬영</h3>
+              <h3 className="camera-capture-view__title">{cameraPreviewImageUri ? '촬영 확인' : '가이드에 맞춰 촬영'}</h3>
             </div>
             <button
               type="button"
@@ -1689,27 +1690,39 @@ export function HomePage() {
           </div>
 
           <div className="camera-capture-view__body">
-            <div className="camera-capture-preview">
+            <div className={cameraPreviewImageUri ? 'camera-capture-preview camera-capture-preview--frozen' : 'camera-capture-preview'}>
               <video ref={cameraVideoRef} className="camera-capture-preview__video" autoPlay muted playsInline />
               {cameraPreviewImageUri ? (
                 <img className="camera-capture-preview__image" src={cameraPreviewImageUri} alt="촬영 정지 화면" />
               ) : null}
               <span className="camera-capture-preview__grid" aria-hidden="true" />
               <FaceAlignmentGuide />
-              {!isCameraStreamReady && <div className="camera-capture-preview__status">{cameraCaptureMessage}</div>}
+              {!isCameraStreamReady && !cameraPreviewImageUri && <div className="camera-capture-preview__status">{cameraCaptureMessage}</div>}
+              {cameraPreviewImageUri ? <div className="camera-capture-preview__captured-badge">촬영 완료</div> : null}
             </div>
             <p className="camera-capture-view__hint">{cameraCaptureMessage}</p>
           </div>
 
           <div className="camera-capture-view__actions">
-            <button
-              type="button"
-              className="camera-capture-view__shutter"
-              aria-label="촬영"
-              onClick={handleCameraShutter}
-              disabled={!isCameraStreamReady}
-            />
-            {isNativeCameraFallbackVisible && (
+            {cameraPreviewImageUri ? (
+              <div className="camera-capture-view__confirm-actions">
+                <button type="button" className="camera-capture-view__secondary-action" onClick={handleRetakeCameraPreview}>
+                  다시 촬영
+                </button>
+                <button type="button" className="camera-capture-view__primary-action" onClick={handleUseCameraPreview}>
+                  이 사진 사용
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="camera-capture-view__shutter"
+                aria-label="촬영"
+                onClick={handleCameraShutter}
+                disabled={!isCameraStreamReady}
+              />
+            )}
+            {isNativeCameraFallbackVisible && !cameraPreviewImageUri && (
               <button type="button" className="camera-capture-view__fallback" onClick={captureFaceImage}>
                 기본 카메라
               </button>
