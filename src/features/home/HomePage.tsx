@@ -1230,7 +1230,6 @@ export function HomePage() {
 
   function handleCameraShutter() {
     const video = cameraVideoRef.current
-    const stream = cameraStreamRef.current
     const imageUri = video ? createCameraFrameImage(video) : null
 
     if (!imageUri) {
@@ -1240,9 +1239,7 @@ export function HomePage() {
 
     try {
       setCameraPreviewImageUri(imageUri)
-      setIsCameraStreamReady(false)
       setCameraCaptureMessage('촬영 완료. 가이드에 맞는지 확인한 뒤 이 사진을 사용해 주세요.')
-      releaseCameraCapture(video, stream)
     } catch (error) {
       console.error('가이드 촬영에 실패했어요:', error)
       setCameraCaptureMessage('촬영에 실패했어요. 다시 시도하거나 기본 카메라로 촬영해 주세요.')
@@ -1262,8 +1259,15 @@ export function HomePage() {
 
   function handleRetakeCameraPreview() {
     setCameraPreviewImageUri(null)
-    setIsCameraStreamReady(false)
     setIsNativeCameraFallbackVisible(false)
+
+    if (cameraStreamRef.current && cameraVideoRef.current?.srcObject) {
+      setIsCameraStreamReady(true)
+      setCameraCaptureMessage('얼굴 윤곽을 타원 안에 맞추고, 눈은 가로선에 맞춘 뒤 셔터를 눌러 주세요.')
+      return
+    }
+
+    setIsCameraStreamReady(false)
     setCameraCaptureMessage('카메라를 다시 준비하고 있어요.')
     setCameraCaptureRetryKey((current) => current + 1)
   }
