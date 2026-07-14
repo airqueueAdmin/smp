@@ -443,9 +443,9 @@ function getCaptureScenario(capture: string | null): CaptureScenario | null {
         exposureMinutes: 62,
         lastAppliedAt: '2026-07-02T09:24:00+09:00',
         nextAction: '30분 안에 덧바르기 권장',
-        headline: '촬영 중 얼굴을 가이드에 맞춰요',
-        description: '촬영 화면에 격자와 얼굴 윤곽을 함께 띄워 얼굴이 결과 카드에 바로 맞게 들어오도록 했습니다.',
-        cameraMessage: '촬영 중에는 격자와 타원 가이드에 맞추고, 촬영 후 필요할 때만 위치를 미세 조정합니다.',
+        headline: '촬영 뒤 얼굴 위치를 기준선에 맞춰요',
+        description: '기본 카메라로 찍은 사진 위에서 얼굴 크기와 위치를 조정해 결과 카드에 맞게 정렬합니다.',
+        cameraMessage: '사진을 찍은 뒤 타원과 기준선에 맞춰 얼굴 크기와 위치를 조정합니다.',
       }
     case 'reminder':
       return {
@@ -770,9 +770,11 @@ export function HomePage() {
   const formattedLastAppliedAt = displayLastAppliedAt ? formatDateTime(displayLastAppliedAt) : ''
   const displayFaceImageUri = captureScenario ? DEMO_FACE_IMAGE_URI : capturedImageUri
   const hasFaceImage = Boolean(displayFaceImageUri)
-  const cameraGuideImageUri = cameraPreviewImageUri ?? capturedImageUri
   const faceImageStyle = {
     transform: `translateX(-50%) translateY(${faceOffsetY}px) scale(${faceScale})`,
+  }
+  const cameraPreviewImageStyle = {
+    transform: `translateY(${faceOffsetY}px) scale(${faceScale})`,
   }
   const faceImageMiniStyle = {
     transform: `translateX(-50%) translateY(${Math.round(faceOffsetY * 0.32)}px) scale(${faceScale})`,
@@ -1074,10 +1076,12 @@ export function HomePage() {
     }
   }
 
-  function applyCapturedFaceImage(imageUri: string, successMessage: string) {
+  function applyCapturedFaceImage(imageUri: string, successMessage: string, resetPosition = true) {
     setCapturedImageUri(imageUri)
-    setFaceScale(1)
-    setFaceOffsetY(0)
+    if (resetPosition) {
+      setFaceScale(1)
+      setFaceOffsetY(0)
+    }
     setCameraMessage(
       lastAppliedAt
         ? `${successMessage} 이제 단계별 피부 변화가 이 얼굴 위에 반영됩니다.`
@@ -1122,8 +1126,7 @@ export function HomePage() {
 
     setCameraPreviewImageUri(null)
     setCameraCaptureMessage('')
-    setIsCameraCapturePending(false)
-    setIsCameraCaptureOpen(true)
+    await captureFaceImage()
   }
 
   function handleCloseCameraCapture() {
@@ -1133,29 +1136,29 @@ export function HomePage() {
     setCameraCaptureMessage('')
   }
 
-  async function handleCameraShutter() {
-    await captureFaceImage()
-  }
-
   function handleUseCameraPreview() {
     if (!cameraPreviewImageUri) {
       setCameraCaptureMessage('사용할 촬영 화면이 아직 없어요.')
       return
     }
 
-    applyCapturedFaceImage(cameraPreviewImageUri, '가이드에 맞춰 촬영한 얼굴 이미지를 적용했어요.')
+    applyCapturedFaceImage(cameraPreviewImageUri, '기준선에 맞춘 얼굴 이미지를 적용했어요.', false)
     handleCloseCameraCapture()
   }
 
   function handleRetakeCameraPreview() {
-    setCameraPreviewImageUri(null)
     setCameraCaptureMessage('')
+    void captureFaceImage()
   }
 
   async function captureFaceImage() {
+    const isPreviewOpen = isCameraCaptureOpen
+
     try {
       setIsCameraCapturePending(true)
-      setCameraCaptureMessage('카메라를 열고 있어요.')
+      if (isPreviewOpen) {
+        setCameraCaptureMessage('카메라를 열고 있어요.')
+      }
 
       const permission = await openCamera.getPermission()
 
@@ -1163,30 +1166,39 @@ export function HomePage() {
         const requestedPermission = await openCamera.openPermissionDialog()
 
         if (requestedPermission !== 'allowed') {
-          setCameraCaptureMessage('카메라 권한을 허용한 뒤 다시 촬영해 주세요.')
-          setCameraMessage('카메라 권한이 필요해요. 권한을 허용해야 얼굴 이미지를 붙일 수 있어요.')
+          const message = '카메라 권한을 허용한 뒤 다시 촬영해 주세요.'
+          setCameraCaptureMessage(isPreviewOpen ? message : '')
+          setCameraMessage(message)
           return
         }
       }
 
       const response = await openCamera({ base64: true, maxWidth: 720 })
       if (!response?.dataUri) {
-        setCameraCaptureMessage('촬영을 완료하지 않았어요. 셔터를 다시 눌러 주세요.')
+        const message = '촬영을 완료하지 않았어요. 다시 시도해 주세요.'
+        setCameraCaptureMessage(isPreviewOpen ? message : '')
+        setCameraMessage(message)
         return
       }
 
       const imageUri = response.dataUri.startsWith('data:') ? response.dataUri : `data:image/jpeg;base64,${response.dataUri}`
+      setFaceScale(1)
+      setFaceOffsetY(0)
       setCameraPreviewImageUri(imageUri)
       setCameraCaptureMessage('')
+      setIsCameraCaptureOpen(true)
     } catch (error) {
       if (error instanceof OpenCameraPermissionError) {
-        setCameraCaptureMessage('카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.')
-        setCameraMessage('카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.')
+        const message = '카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.'
+        setCameraCaptureMessage(isPreviewOpen ? message : '')
+        setCameraMessage(message)
         return
       }
 
       console.error('사진을 가져오는 데 실패했어요:', error)
-      setCameraCaptureMessage('촬영을 완료하지 않았어요. 셔터를 다시 눌러 주세요.')
+      const message = '촬영을 완료하지 않았어요. 다시 시도해 주세요.'
+      setCameraCaptureMessage(isPreviewOpen ? message : '')
+      setCameraMessage(message)
     } finally {
       setIsCameraCapturePending(false)
     }
@@ -1567,58 +1579,79 @@ export function HomePage() {
         <div className="camera-capture-view" role="dialog" aria-modal="true" aria-label="얼굴 촬영">
           <div className="camera-capture-view__instruction" aria-live="polite">
             <span className="camera-capture-view__step">1</span>
-            <p>
-              {cameraPreviewImageUri
-                ? '촬영한 사진이 가이드에 맞는지 확인해 주세요.'
-                : isCameraCapturePending
-                  ? '카메라를 열고 있어요.'
-                  : '하단 셔터를 눌러 사진을 촬영해 주세요.'}
-            </p>
+            <p>촬영한 사진에서 얼굴을 기준선에 맞춰주세요.</p>
           </div>
 
           <div className="camera-capture-view__body">
             <div className="camera-capture-preview">
-              {cameraGuideImageUri ? (
-                <img className="camera-capture-preview__image" src={cameraGuideImageUri} alt="얼굴 촬영 미리보기" />
+              {cameraPreviewImageUri ? (
+                <img
+                  className="camera-capture-preview__image"
+                  src={cameraPreviewImageUri}
+                  style={cameraPreviewImageStyle}
+                  alt="얼굴 촬영 미리보기"
+                />
               ) : null}
               <span className="camera-capture-preview__grid" aria-hidden="true" />
               <FaceAlignmentGuide camera />
-              {cameraCaptureMessage && !cameraPreviewImageUri && (
-                <div className="camera-capture-preview__status">{cameraCaptureMessage}</div>
-              )}
+              {cameraCaptureMessage ? <div className="camera-capture-preview__status">{cameraCaptureMessage}</div> : null}
               {cameraPreviewImageUri ? <div className="camera-capture-preview__captured-badge">촬영 완료</div> : null}
+            </div>
+
+            <div className="camera-capture-view__adjustments">
+              <label className="camera-capture-view__adjustment">
+                <span>얼굴 크기</span>
+                <input
+                  type="range"
+                  min="0.9"
+                  max="1.5"
+                  step="0.05"
+                  value={faceScale}
+                  onChange={(event) => setFaceScale(Number(event.target.value))}
+                />
+              </label>
+              <label className="camera-capture-view__adjustment">
+                <span>위아래 위치</span>
+                <input
+                  type="range"
+                  min="-72"
+                  max="72"
+                  step="2"
+                  value={faceOffsetY}
+                  onChange={(event) => setFaceOffsetY(Number(event.target.value))}
+                />
+              </label>
             </div>
           </div>
 
           <div className="camera-capture-view__actions">
-            {cameraPreviewImageUri ? (
-              <div className="camera-capture-view__confirm-actions">
-                <button type="button" className="camera-capture-view__secondary-action" onClick={handleRetakeCameraPreview}>
-                  다시 촬영
-                </button>
-                <button type="button" className="camera-capture-view__primary-action" onClick={handleUseCameraPreview}>
-                  이 사진 사용
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="camera-capture-view__cancel"
-                  aria-label="촬영 화면 닫기"
-                  onClick={handleCloseCameraCapture}
-                >
-                  ×
-                </button>
-                <button
-                  type="button"
-                  className="camera-capture-view__shutter"
-                  aria-label="촬영"
-                  onClick={handleCameraShutter}
-                  disabled={isCameraCapturePending}
-                />
-              </>
-            )}
+            <button
+              type="button"
+              className="camera-capture-view__cancel"
+              aria-label="촬영 화면 닫기"
+              onClick={handleCloseCameraCapture}
+              disabled={isCameraCapturePending}
+            >
+              ×
+            </button>
+            <div className="camera-capture-view__confirm-actions">
+              <button
+                type="button"
+                className="camera-capture-view__secondary-action"
+                onClick={handleRetakeCameraPreview}
+                disabled={isCameraCapturePending}
+              >
+                다시 촬영
+              </button>
+              <button
+                type="button"
+                className="camera-capture-view__primary-action"
+                onClick={handleUseCameraPreview}
+                disabled={isCameraCapturePending}
+              >
+                이 사진 사용
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1776,8 +1809,8 @@ export function HomePage() {
                         <input
                           className="slider-input slider-input--light"
                           type="range"
-                          min="-24"
-                          max="24"
+                          min="-72"
+                          max="72"
                           step="2"
                           value={faceOffsetY}
                           onChange={(event) => setFaceOffsetY(Number(event.target.value))}
@@ -1829,8 +1862,8 @@ export function HomePage() {
                 <FaceAlignmentGuide />
               </div>
               <div>
-                <strong>촬영 중 얼굴 기준선</strong>
-                <p>카메라 화면에 격자와 얼굴 윤곽을 띄워 눈, 중앙, 턱 위치를 맞춘 뒤 촬영해요.</p>
+                <strong>촬영 후 얼굴 기준선</strong>
+                <p>기본 카메라로 찍은 사진 위에서 눈, 중앙, 턱 위치를 기준선에 맞춰 조정해요.</p>
               </div>
             </div>
 
@@ -1843,12 +1876,12 @@ export function HomePage() {
               {isUserNameRequestPending
                 ? '이름 정보 확인 중...'
                 : capturedImageUri
-                  ? '가이드 보고 다시 촬영하기'
-                  : '가이드 보고 촬영하기'}
+                  ? '다시 촬영 후 맞추기'
+                  : '사진 촬영 후 맞추기'}
             </button>
             <p className="helper-text">
-              촬영 화면 안에서 격자와 얼굴 윤곽을 먼저 맞춥니다. 촬영 후에는 선크림 상태에 따라 붉어짐과 피부변화가
-              이 얼굴 위에 덮이고, 위치를 한 번 더 조절할 수 있어요.
+              기본 카메라로 촬영한 뒤 가이드 화면에서 얼굴 크기와 위치를 직접 맞춥니다. 이후 선크림 상태에 따라 붉어짐과
+              피부변화가 이 얼굴 위에 덮입니다.
             </p>
             {!userName && (
               <p className="helper-text helper-text--tight">
