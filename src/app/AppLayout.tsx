@@ -5,6 +5,7 @@ export function AppLayout() {
   const capture = new URLSearchParams(location.search).get('capture')
   const isCaptureMode = capture !== null
   const isWideCapture = capture === 'landscape' || capture === 'thumbnail'
+  const isHome = location.pathname === '/'
 
   return (
     <div className={isCaptureMode ? 'app-shell app-shell--capture' : 'app-shell'}>
@@ -17,7 +18,7 @@ export function AppLayout() {
             : 'app-frame'
         }
       >
-        {!isCaptureMode && (
+        {!isCaptureMode && isHome && (
           <header className="app-header">
             <p className="app-header__eyebrow">썸머핑 · 퍼스널 선케어</p>
             <h1 className="app-header__title">외출 중에도 선케어 타이밍을 놓치지 마세요</h1>

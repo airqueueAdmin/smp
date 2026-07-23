@@ -904,6 +904,137 @@ select {
   box-shadow: none;
 }
 
+.primary-action:disabled,
+.quick-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.secondary-inline-action {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4e5968;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.reminder-status-copy {
+  margin: 14px 2px 0;
+}
+
+.text-link {
+  display: inline-flex;
+  margin-top: 16px;
+  color: #1b64da;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.quick-link-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-link-grid a {
+  display: grid;
+  min-height: 52px;
+  place-items: center;
+  padding: 10px;
+  border: 1px solid rgba(27, 100, 218, 0.12);
+  border-radius: 16px;
+  background: #f8fbff;
+  color: #1b64da;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.quick-page {
+  align-content: start;
+}
+
+.quick-hero {
+  padding: 24px 20px;
+  border: 1px solid rgba(25, 31, 40, 0.06);
+  border-radius: 28px;
+  background: #ffffff;
+}
+
+.quick-hero--blue {
+  border-color: transparent;
+  background: linear-gradient(145deg, #1b64da 0%, #4c8ff4 100%);
+  color: #ffffff;
+}
+
+.quick-hero--blue .eyebrow,
+.quick-hero--blue .hero-description {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.quick-primary-button,
+.quick-primary-link {
+  display: grid;
+  width: 100%;
+  min-height: 54px;
+  margin-top: 20px;
+  place-items: center;
+  border: 0;
+  border-radius: 17px;
+  background: #ffffff;
+  color: #1b64da;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #f8fbff;
+  color: #4e5968;
+  font-size: 13px;
+}
+
+.history-list strong {
+  color: #191f28;
+  text-align: right;
+}
+
+.empty-state {
+  margin-top: 16px;
+  padding: 22px 16px;
+  border-radius: 18px;
+  background: #f9fafb;
+  text-align: center;
+}
+
+.empty-state strong {
+  display: block;
+}
+
+.empty-state p {
+  margin: 8px 0 0;
+  color: #6b7684;
+  font-size: 14px;
+}
+
 .camera-panel {
   margin-top: 16px;
 }

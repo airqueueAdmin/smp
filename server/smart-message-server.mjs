@@ -1,14 +1,14 @@
 import { createServer } from 'node:http'
-import { createDecipheriv } from 'node:crypto'
+import { createDecipheriv, randomUUID } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT ?? process.env.SMART_MESSAGE_SERVER_PORT ?? '8787')
 const BASE_URL = process.env.APPS_IN_TOSS_BASE_URL ?? 'https://apps-in-toss-api.toss.im'
-const TEMPLATE_SET_CODE = process.env.SMART_MESSAGE_TEMPLATE_SET_CODE ?? ''
+const TEMPLATE_SET_CODE = process.env.SMART_MESSAGE_TEMPLATE_SET_CODE ?? 'summer-ping-reapply'
 const TEST_DEPLOYMENT_ID = process.env.SMART_MESSAGE_TEST_DEPLOYMENT_ID ?? ''
 const CERT_PATH = process.env.APPS_IN_TOSS_CERT_PATH ?? ''
 const KEY_PATH = process.env.APPS_IN_TOSS_KEY_PATH ?? ''
@@ -22,10 +22,23 @@ const USER_INFO_AAD = process.env.APPS_IN_TOSS_USER_INFO_AAD ?? ''
 const USER_INFO_AAD_BASE64 = process.env.APPS_IN_TOSS_USER_INFO_AAD_BASE64 ?? ''
 const DEFAULT_REMINDER_MINUTES = Number(process.env.DEFAULT_REMINDER_MINUTES ?? '120')
 const DEBUG_ENDPOINTS_ENABLED = /^(1|true)$/i.test(process.env.SMART_MESSAGE_DEBUG_ENDPOINTS ?? '')
-const STORE_DIR = resolve(__dirname, '..', '.server-data')
+const APP_NAME = process.env.APPS_IN_TOSS_APP_NAME ?? 'summer-ping'
+const ALLOWED_ORIGINS = new Set(
+  (
+    process.env.ALLOWED_ORIGINS ??
+    `http://localhost:5173,http://127.0.0.1:5173,https://${APP_NAME}.private-apps.tossmini.com,https://${APP_NAME}.apps.tossmini.com`
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+)
+const STORE_DIR = resolve(process.env.SMART_MESSAGE_STORE_DIR ?? resolve(__dirname, '..', '.server-data'))
 const STORE_PATH = resolve(STORE_DIR, 'reminders.json')
+const STORE_TEMP_PATH = resolve(STORE_DIR, 'reminders.tmp.json')
 const AES_GCM_IV_LENGTH = 12
 const AES_GCM_TAG_LENGTH = 16
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const MAX_REMINDER_ATTEMPTS = 5
 
 function ensureStore() {
   if (!existsSync(STORE_DIR)) {
@@ -33,27 +46,39 @@ function ensureStore() {
   }
 
   if (!existsSync(STORE_PATH)) {
-    writeFileSync(STORE_PATH, JSON.stringify({ reminders: {} }, null, 2))
+    writeFileSync(STORE_PATH, JSON.stringify({ reminders: {}, sessions: {} }, null, 2))
   }
 }
 
 function loadStore() {
   ensureStore()
-  return JSON.parse(readFileSync(STORE_PATH, 'utf8'))
+  const parsed = JSON.parse(readFileSync(STORE_PATH, 'utf8'))
+  return {
+    reminders: parsed?.reminders && typeof parsed.reminders === 'object' ? parsed.reminders : {},
+    sessions: parsed?.sessions && typeof parsed.sessions === 'object' ? parsed.sessions : {},
+  }
 }
 
 function saveStore(store) {
-  writeFileSync(STORE_PATH, JSON.stringify(store, null, 2))
+  writeFileSync(STORE_TEMP_PATH, JSON.stringify(store, null, 2))
+  renameSync(STORE_TEMP_PATH, STORE_PATH)
 }
 
 function json(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
   })
   response.end(JSON.stringify(payload))
+}
+
+function setCorsHeaders(request, response) {
+  const origin = request.headers.origin
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin)
+    response.setHeader('Vary', 'Origin')
+  }
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
 function readBody(request) {
@@ -310,6 +335,56 @@ async function fetchLoginMe(accessToken) {
   })
 }
 
+async function exchangeAuthorizationCode({ authorizationCode, referrer }) {
+  return partnerRequest({
+    path: '/api-partner/v1/apps-in-toss/user/oauth2/generate-token',
+    method: 'POST',
+    body: {
+      authorizationCode,
+      referrer,
+    },
+  })
+}
+
+function createServerSession(store, userKey) {
+  const sessionId = randomUUID()
+  const now = Date.now()
+
+  for (const [existingSessionId, session] of Object.entries(store.sessions)) {
+    if (!session?.expiresAtMs || session.expiresAtMs <= now || String(session.userKey) === String(userKey)) {
+      delete store.sessions[existingSessionId]
+    }
+  }
+
+  store.sessions[sessionId] = {
+    userKey: String(userKey),
+    createdAt: new Date(now).toISOString(),
+    lastSeenAt: new Date(now).toISOString(),
+    expiresAtMs: now + SESSION_TTL_MS,
+  }
+  return sessionId
+}
+
+function getServerSession(store, sessionId) {
+  if (!sessionId || typeof sessionId !== 'string') {
+    return null
+  }
+
+  const session = store.sessions[sessionId]
+  if (!session) {
+    return null
+  }
+
+  if (!session.expiresAtMs || session.expiresAtMs <= Date.now()) {
+    delete store.sessions[sessionId]
+    saveStore(store)
+    return null
+  }
+
+  session.lastSeenAt = new Date().toISOString()
+  return session
+}
+
 function getSmartMessageRecipientHeaders({ userKey, anonKey }) {
   const hasUserKey = typeof userKey === 'string' || typeof userKey === 'number'
   const hasAnonKey = typeof anonKey === 'string' || typeof anonKey === 'number'
@@ -391,7 +466,7 @@ async function partnerRequest({ path, method, headers = {}, body }) {
 
             rejectRequest(
               new Error(
-                `Smart message failed: ${res.statusCode ?? 500} ${parsed?.error?.reason ?? raw ?? 'Unknown error'}`,
+                `Apps in Toss request failed: ${res.statusCode ?? 500} ${parsed?.error?.reason ?? raw ?? 'Unknown error'}`,
               ),
             )
           } catch (error) {
@@ -470,7 +545,12 @@ async function processDueReminders() {
   const reminders = Object.values(store.reminders)
 
   for (const reminder of reminders) {
-    if (!reminder.enabled || reminder.nextReminderAtMs > now || reminder.dispatchedFor === reminder.nextReminderAt) {
+    if (
+      !reminder.enabled ||
+      reminder.nextReminderAtMs > now ||
+      reminder.dispatchedFor === reminder.nextReminderAt ||
+      (reminder.nextAttemptAtMs && reminder.nextAttemptAtMs > now)
+    ) {
       continue
     }
 
@@ -496,8 +576,20 @@ async function processDueReminders() {
       reminder.dispatchedFor = reminder.nextReminderAt
       reminder.lastDispatchResult = result
       reminder.lastError = null
+      reminder.attempts = 0
+      reminder.nextAttemptAtMs = null
     } catch (error) {
+      const attempts = Number(reminder.attempts ?? 0) + 1
       reminder.lastError = error instanceof Error ? error.message : String(error)
+      reminder.attempts = attempts
+
+      if (attempts >= MAX_REMINDER_ATTEMPTS) {
+        reminder.enabled = false
+        reminder.nextAttemptAtMs = null
+      } else {
+        const retryDelayMs = Math.min(30 * 60 * 1000, 30 * 1000 * 2 ** (attempts - 1))
+        reminder.nextAttemptAtMs = now + retryDelayMs
+      }
     }
   }
 
@@ -505,6 +597,8 @@ async function processDueReminders() {
 }
 
 const server = createServer(async (request, response) => {
+  setCorsHeaders(request, response)
+
   if (!request.url) {
     json(response, 404, { error: 'Not found' })
     return
@@ -556,27 +650,87 @@ const server = createServer(async (request, response) => {
     return
   }
 
-  if (request.method === 'POST' && request.url === '/api/reminders/schedule') {
+  if (request.method === 'POST' && request.url === '/api/users/login') {
     try {
       const body = await readBody(request)
-      const { userKey, anonKey, lastAppliedAt, outdoorTime = 'medium', notificationAgreement = 'unknown' } = body
+      const authorizationCode =
+        typeof body.authorizationCode === 'string' ? body.authorizationCode.trim() : ''
+      const referrer = body.referrer === 'SANDBOX' ? 'SANDBOX' : body.referrer === 'DEFAULT' ? 'DEFAULT' : ''
 
-      if ((!userKey && !anonKey) || (userKey && anonKey) || !lastAppliedAt) {
-        json(response, 400, { error: 'userKey 또는 anonKey 중 하나와 lastAppliedAt이 필요합니다.' })
+      if (!authorizationCode || !referrer) {
+        json(response, 400, { error: '유효한 authorizationCode와 referrer가 필요합니다.' })
         return
       }
 
-      const reminderMinutes = getReminderMinutes(outdoorTime)
-      const nextReminderAtMs = new Date(lastAppliedAt).getTime() + reminderMinutes * 60 * 1000
-      const nextReminderAt = new Date(nextReminderAtMs).toISOString()
+      const tokenResult = await exchangeAuthorizationCode({ authorizationCode, referrer })
+      const accessToken = tokenResult?.success?.accessToken
+
+      if (!accessToken) {
+        throw new Error('토스 로그인 토큰을 발급받지 못했습니다.')
+      }
+
+      const loginMeResult = await fetchLoginMe(accessToken)
+      const user = normalizeLoginMeResult(loginMeResult)
+
+      if (!user.userKey) {
+        throw new Error('토스 사용자 식별값을 확인하지 못했습니다.')
+      }
+
       const store = loadStore()
-      const reminderKey = getReminderStoreKey({ userKey, anonKey })
+      const sessionId = createServerSession(store, user.userKey)
+      saveStore(store)
+
+      json(response, 200, { sessionId, user })
+    } catch (error) {
+      json(response, 502, { error: error instanceof Error ? error.message : String(error) })
+    }
+    return
+  }
+
+  if (request.method === 'POST' && request.url === '/api/reminders/schedule') {
+    try {
+      const body = await readBody(request)
+      const { sessionId, lastAppliedAt, outdoorTime = 'medium', notificationAgreement = 'unknown' } = body
+
+      if (!sessionId || !lastAppliedAt) {
+        json(response, 400, { error: '로그인 세션과 선케어 기록 시간이 필요합니다.' })
+        return
+      }
+
+      const store = loadStore()
+      const session = getServerSession(store, sessionId)
+
+      if (!session) {
+        json(response, 401, { error: '로그인 세션이 만료됐어요. 알림을 다시 연결해 주세요.' })
+        return
+      }
+
+      const appliedAtMs = new Date(lastAppliedAt).getTime()
+      const now = Date.now()
+      const isRecentApplication = Number.isFinite(appliedAtMs) && appliedAtMs <= now + 5 * 60 * 1000 && appliedAtMs >= now - 30 * 60 * 1000
+
+      if (!isRecentApplication) {
+        json(response, 400, { error: '최근 30분 안에 기록한 시간만 알림으로 예약할 수 있어요.' })
+        return
+      }
+
+      if (notificationAgreement !== 'newAgreement' && notificationAgreement !== 'alreadyAgreed') {
+        json(response, 400, { error: '알림 동의를 완료한 뒤 예약해 주세요.' })
+        return
+      }
+
+      const safeOutdoorTime = ['short', 'medium', 'long'].includes(outdoorTime) ? outdoorTime : 'medium'
+      const reminderMinutes = getReminderMinutes(safeOutdoorTime)
+      const nextReminderAtMs = appliedAtMs + reminderMinutes * 60 * 1000
+      const nextReminderAt = new Date(nextReminderAtMs).toISOString()
+      const userKey = String(session.userKey)
+      const reminderKey = getReminderStoreKey({ userKey })
 
       store.reminders[reminderKey] = {
-        userKey: userKey ? String(userKey) : null,
-        anonKey: anonKey ? String(anonKey) : null,
-        lastAppliedAt,
-        outdoorTime,
+        userKey,
+        anonKey: null,
+        lastAppliedAt: new Date(appliedAtMs).toISOString(),
+        outdoorTime: safeOutdoorTime,
         reminderMinutes,
         nextReminderAt,
         nextReminderAtMs,
@@ -586,6 +740,8 @@ const server = createServer(async (request, response) => {
         lastDispatchAt: null,
         lastDispatchResult: null,
         lastError: null,
+        attempts: 0,
+        nextAttemptAtMs: null,
       }
 
       saveStore(store)
@@ -647,6 +803,11 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'POST' && request.url === '/api/users/login-me') {
+    if (!DEBUG_ENDPOINTS_ENABLED) {
+      json(response, 404, { error: 'Not found' })
+      return
+    }
+
     try {
       const body = await readBody(request)
       const { accessToken } = body
@@ -670,8 +831,27 @@ const server = createServer(async (request, response) => {
 })
 
 ensureStore()
+let isProcessingReminders = false
+
+async function runReminderWorker() {
+  if (isProcessingReminders) {
+    return
+  }
+
+  isProcessingReminders = true
+  try {
+    await processDueReminders()
+  } finally {
+    isProcessingReminders = false
+  }
+}
+
+void runReminderWorker().catch((error) => {
+  console.error('Failed to process reminders:', error)
+})
+
 setInterval(() => {
-  processDueReminders().catch((error) => {
+  runReminderWorker().catch((error) => {
     console.error('Failed to process reminders:', error)
   })
 }, 15000)

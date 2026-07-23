@@ -1,11 +1,18 @@
 import {
   OpenCameraPermissionError,
+  appLogin,
   getConsentedUserData,
   openCamera,
   requestNotificationAgreement,
 } from '@apps-in-toss/web-framework'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+
+import { trackEvent, trackImpression, trackScreen } from '../../lib/analytics'
+import {
+  getLastAppliedAt,
+  recordSuncareApplication,
+} from '../suncare/storage'
 
 type SunscreenStage = 'fresh' | 'fading' | 'warning' | 'burned'
 type OutdoorTime = 'short' | 'medium' | 'long'
@@ -36,13 +43,12 @@ type FaceRenderPreset = {
   contrast: number
 }
 
-const LAST_APPLIED_AT_KEY = 'summer-ping:last-applied-at'
-const LAST_APPLIED_AT_OWNER_KEY = 'summer-ping:last-applied-at-owner'
 const NOTIFICATION_AGREEMENT_KEY = 'summer-ping:notification-agreement'
 const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
 const USER_NAME_STORAGE_KEY = 'summer-ping:user-name'
-const ACCESS_TOKEN_STORAGE_KEY = 'summer-ping:access-token'
-const NOTIFICATION_TEMPLATE_CODE = import.meta.env.VITE_SMART_MESSAGE_TEMPLATE_CODE
+const SERVER_SESSION_STORAGE_KEY = 'summer-ping:server-session-id'
+const NOTIFICATION_TEMPLATE_CODE =
+  import.meta.env.VITE_SMART_MESSAGE_TEMPLATE_CODE ?? 'summer-ping-reapply'
 const USER_NAME_CONSENTED_DATA_KEY = import.meta.env.VITE_USER_NAME_CONSENTED_DATA_KEY
 const REMINDER_API_BASE_URL =
   import.meta.env.VITE_REMINDER_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8787' : '')
@@ -523,8 +529,7 @@ function getUvToneClass(uv: number) {
   return 'uv-card uv-card--low'
 }
 
-function resolveAutoConditions() {
-  const now = new Date()
+function resolveAutoConditions(now = new Date()) {
   const hour = now.getHours()
   const month = now.getMonth() + 1
 
@@ -673,15 +678,8 @@ function getInitialUserName() {
   return window.localStorage.getItem(USER_NAME_STORAGE_KEY) ?? ''
 }
 
-function getInitialAccessToken(searchParams: URLSearchParams) {
-  const fromQuery = searchParams.get('accessToken')
-
-  if (fromQuery) {
-    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, fromQuery)
-    return fromQuery
-  }
-
-  return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? ''
+function getInitialServerSessionId() {
+  return window.localStorage.getItem(SERVER_SESSION_STORAGE_KEY) ?? ''
 }
 
 function buildApiUrl(path: string) {
@@ -703,7 +701,8 @@ function getUserInfoErrorCode(error: unknown) {
 
 export function HomePage() {
   const [searchParams] = useSearchParams()
-  const [lastAppliedAt, setLastAppliedAt] = useState('')
+  const location = useLocation()
+  const [lastAppliedAt, setLastAppliedAt] = useState(() => getLastAppliedAt())
   const [outdoorTime, setOutdoorTime] = useState<OutdoorTime>('medium')
   const [hasHat, setHasHat] = useState(false)
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null)
@@ -722,13 +721,16 @@ export function HomePage() {
     'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided' | 'not_configured' | 'declined' | 'unavailable' | 'timeout'
   >(() => (getInitialUserName() ? 'decrypted' : 'idle'))
   const [notificationMessage, setNotificationMessage] = useState(
-    '앱을 나가도 알림을 받으려면 먼저 알림 동의를 받아야 해요.',
+    '선크림을 바른 시간을 기록한 뒤 원할 때 알림을 켤 수 있어요.',
   )
+  const [serverSessionId, setServerSessionId] = useState(() => getInitialServerSessionId())
+  const [isReminderSetupPending, setIsReminderSetupPending] = useState(false)
+  const hasTrackedHomeScreen = useRef(false)
+  const hasTrackedReminderOffer = useRef(false)
   const capture = searchParams.get('capture')
-  const [accessToken] = useState(() => getInitialAccessToken(searchParams))
   const captureScenario = useMemo(() => getCaptureScenario(capture), [capture])
-  const { hour, uv, temperature } = useMemo(() => resolveAutoConditions(), [])
-  const now = useMemo(() => new Date(), [])
+  const [now, setNow] = useState(() => new Date())
+  const { hour, uv, temperature } = useMemo(() => resolveAutoConditions(now), [now])
 
   const isOverviewCapture = capture === 'overview'
   const isCameraCapture = capture === 'camera'
@@ -745,6 +747,7 @@ export function HomePage() {
     const diffMs = now.getTime() - new Date(lastAppliedAt).getTime()
     return Math.max(0, Math.floor(diffMs / (1000 * 60)))
   }, [lastAppliedAt, now])
+  const canScheduleCurrentApplication = Boolean(lastAppliedAt) && lastAppliedMinutesAgo <= 30
   const exposureMinutes = useMemo(
     () => getExposureMinutes(lastAppliedMinutesAgo, outdoorTime),
     [lastAppliedMinutesAgo, outdoorTime],
@@ -768,8 +771,9 @@ export function HomePage() {
   const uvToneClass = getUvToneClass(displayUv)
   const displayLastAppliedAt = captureScenario?.lastAppliedAt ?? lastAppliedAt
   const formattedLastAppliedAt = displayLastAppliedAt ? formatDateTime(displayLastAppliedAt) : ''
-  const displayFaceImageUri = captureScenario ? DEMO_FACE_IMAGE_URI : capturedImageUri
+  const displayFaceImageUri = captureScenario ? DEMO_FACE_IMAGE_URI : capturedImageUri ?? DEMO_FACE_IMAGE_URI
   const hasFaceImage = Boolean(displayFaceImageUri)
+  const hasPersonalFaceImage = Boolean(capturedImageUri)
   const faceImageStyle = {
     transform: `translateX(-50%) translateY(${faceOffsetY}px) scale(${faceScale})`,
   }
@@ -787,7 +791,39 @@ export function HomePage() {
     : faceImageMiniStyle
   const displayCameraMessage = captureScenario?.cameraMessage ?? cameraMessage
   const hasNotificationAgreement = hasCompletedNotificationAgreement(notificationAgreement)
-  const [hasStarted, setHasStarted] = useState(() => !NOTIFICATION_TEMPLATE_CODE || hasNotificationAgreement)
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNow(new Date())
+    }, 60_000)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
+
+  useEffect(() => {
+    if (isCaptureMode || hasTrackedHomeScreen.current) {
+      return
+    }
+
+    hasTrackedHomeScreen.current = true
+    trackScreen('suncare_home_screen', {
+      path: location.pathname,
+      is_returning: Boolean(lastAppliedAt),
+      notification_enabled: hasNotificationAgreement,
+    })
+    trackImpression('core_value_preview_seen', {
+      has_personal_face: hasPersonalFaceImage,
+    })
+  }, [hasNotificationAgreement, hasPersonalFaceImage, isCaptureMode, lastAppliedAt, location.pathname])
+
+  useEffect(() => {
+    if (!lastAppliedAt || hasNotificationAgreement || hasTrackedReminderOffer.current) {
+      return
+    }
+
+    hasTrackedReminderOffer.current = true
+    trackImpression('reminder_offer_seen', { outdoor_time: outdoorTime })
+  }, [hasNotificationAgreement, lastAppliedAt, outdoorTime])
 
   useEffect(() => {
     if (!isCameraCaptureOpen) {
@@ -811,29 +847,12 @@ export function HomePage() {
   }, [userKey])
 
   useEffect(() => {
-    if (isCaptureMode || !userKey) {
+    if (!serverSessionId) {
       return
     }
 
-    const storedLastAppliedAt = window.localStorage.getItem(LAST_APPLIED_AT_KEY)
-    const storedOwnerKey = window.localStorage.getItem(LAST_APPLIED_AT_OWNER_KEY)
-
-    if (lastAppliedAt) {
-      window.localStorage.setItem(LAST_APPLIED_AT_KEY, lastAppliedAt)
-      window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, userKey)
-      return
-    }
-
-    if (storedLastAppliedAt && storedOwnerKey === userKey) {
-      setLastAppliedAt(storedLastAppliedAt)
-      return
-    }
-
-    if (storedLastAppliedAt && storedOwnerKey !== userKey) {
-      window.localStorage.removeItem(LAST_APPLIED_AT_KEY)
-      window.localStorage.removeItem(LAST_APPLIED_AT_OWNER_KEY)
-    }
-  }, [isCaptureMode, lastAppliedAt, userKey])
+    window.localStorage.setItem(SERVER_SESSION_STORAGE_KEY, serverSessionId)
+  }, [serverSessionId])
 
   useEffect(() => {
     if (!userName) {
@@ -844,85 +863,27 @@ export function HomePage() {
   }, [userName])
 
   useEffect(() => {
-    if (!accessToken) {
-      return
-    }
-
-    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken)
-  }, [accessToken])
-
-  useEffect(() => {
-    if (isCaptureMode || !accessToken || (userKey && userName)) {
-      return
-    }
-
-    const controller = new AbortController()
-
-    fetch(buildApiUrl('/api/users/login-me'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        accessToken,
-      }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const result = await response.json()
-
-        if (!response.ok) {
-          throw new Error(result?.error ?? 'userKey 조회에 실패했어요.')
-        }
-
-        const nextUserKey = String(result.user.userKey)
-        const nextUserName = typeof result.user.name === 'string' ? result.user.name.trim() : ''
-        const nextUserNameStatus =
-          nextUserName
-            ? 'decrypted'
-            : result.user.hasEncryptedName
-              ? result.user.decryptionStatus === 'failed'
-                ? 'failed'
-                : 'missing_key'
-              : 'not_provided'
-        setUserKey(nextUserKey)
-        setUserNameStatus(nextUserNameStatus)
-        if (nextUserName) {
-          setUserName(nextUserName)
-        }
-        setNotificationMessage('알림 발송에 필요한 사용자 정보를 연결했어요.')
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return
-        }
-
-        setUserNameStatus('failed')
-        setNotificationMessage(error instanceof Error ? error.message : 'userKey 조회에 실패했어요.')
-      })
-
-    return () => controller.abort()
-  }, [accessToken, isCaptureMode, userKey, userName])
-
-  useEffect(() => {
     if (isCaptureMode) {
       return
     }
 
     if (hasNotificationAgreement) {
-      setNotificationMessage('앱을 나가도 알림을 받을 수 있도록 동의가 연결되어 있어요.')
-      setHasStarted(true)
+      setNotificationMessage('덧바를 시간 알림이 연결되어 있어요.')
       return
     }
 
     if (!NOTIFICATION_TEMPLATE_CODE) {
-      setNotificationMessage('알림 템플릿 코드가 아직 연결되지 않았어요.')
-      setHasStarted(true)
+      setNotificationMessage('알림 기능은 준비 중이지만 선케어 기록은 정상적으로 사용할 수 있어요.')
     }
   }, [hasNotificationAgreement, isCaptureMode])
 
   useEffect(() => {
-    if (!hasNotificationAgreement || !userKey || !lastAppliedAt) {
+    if (
+      !hasNotificationAgreement ||
+      !serverSessionId ||
+      !lastAppliedAt ||
+      !canScheduleCurrentApplication
+    ) {
       return
     }
 
@@ -934,7 +895,7 @@ export function HomePage() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        userKey,
+        sessionId: serverSessionId,
         lastAppliedAt,
         outdoorTime,
         notificationAgreement,
@@ -945,14 +906,19 @@ export function HomePage() {
         const result = await response.json()
 
         if (!response.ok) {
+          if (response.status === 401) {
+            window.localStorage.removeItem(SERVER_SESSION_STORAGE_KEY)
+            setServerSessionId('')
+            setUserKey('')
+          }
           throw new Error(result?.error ?? '리마인드 예약에 실패했어요.')
         }
 
-        setNotificationMessage(
-          result.configured
-            ? `알림 예약을 저장했어요. 다음 서버 예약 시각은 ${formatDateTime(result.nextReminderAt)} 입니다.`
-            : '알림 예약은 저장했지만 서버 mTLS 설정이 아직 없어 실제 발송은 되지 않습니다.',
-        )
+        setNotificationMessage(`다음 알림은 ${formatDateTime(result.nextReminderAt)}에 받을 수 있어요.`)
+        trackEvent('reminder_schedule_success', {
+          outdoor_time: outdoorTime,
+          configured: Boolean(result.configured),
+        })
       })
       .catch((error) => {
         if (controller.signal.aborted) {
@@ -960,56 +926,123 @@ export function HomePage() {
         }
 
         setNotificationMessage(error instanceof Error ? error.message : '리마인드 예약 동기화에 실패했어요.')
+        trackEvent('reminder_schedule_failed', { outdoor_time: outdoorTime })
       })
 
     return () => controller.abort()
-  }, [hasNotificationAgreement, lastAppliedAt, notificationAgreement, outdoorTime, userKey])
+  }, [
+    hasNotificationAgreement,
+    lastAppliedAt,
+    canScheduleCurrentApplication,
+    notificationAgreement,
+    outdoorTime,
+    serverSessionId,
+  ])
 
-  function requestNotificationOnboarding() {
+  function requestNotificationForReminder() {
     if (!NOTIFICATION_TEMPLATE_CODE) {
-      setNotificationMessage('알림 템플릿 코드가 아직 연결되지 않았어요.')
-      setHasStarted(true)
-      return
+      setNotificationMessage('알림 기능은 준비 중이에요. 기록은 계속 사용할 수 있어요.')
+      return Promise.resolve(false)
     }
 
-    const cleanup = requestNotificationAgreement({
-      options: {
-        templateCode: NOTIFICATION_TEMPLATE_CODE,
-      },
-      onEvent: ({ type }) => {
-        window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
-        setNotificationAgreement(type)
+    trackEvent('reminder_offer_accepted')
+    return new Promise<boolean>((resolve) => {
+      try {
+        const cleanup = requestNotificationAgreement({
+          options: {
+            templateCode: NOTIFICATION_TEMPLATE_CODE,
+          },
+          onEvent: ({ type }) => {
+            window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
+            setNotificationAgreement(type)
 
-        if (type === 'newAgreement') {
-          setNotificationMessage('알림 동의를 완료했어요. 이제 앱을 나가도 알림을 보낼 수 있습니다.')
-          setHasStarted(true)
-        } else if (type === 'alreadyAgreed') {
-          setNotificationMessage('이미 알림 동의가 되어 있어요.')
-          setHasStarted(true)
-        } else {
-          setNotificationMessage('알림 동의를 거부했어요. 알림 없이 계속 사용할 수 있습니다.')
-          setHasStarted(true)
-        }
+            if (type === 'newAgreement' || type === 'alreadyAgreed') {
+              setNotificationMessage('알림 동의를 완료했어요. 다음 덧바를 시간을 예약할게요.')
+              trackEvent('notification_agreed', { agreement_type: type })
+              resolve(true)
+            } else {
+              setNotificationMessage('알림 없이도 선케어 기록은 계속 사용할 수 있어요.')
+              trackEvent('notification_declined')
+              resolve(false)
+            }
 
-        cleanup()
-      },
-      onError: (error) => {
-        console.error('알림 동의 요청에 실패했어요:', error)
-        setNotificationMessage('알림 동의 요청에 실패했어요. 토스 앱 환경에서 다시 시도해 주세요.')
-        cleanup()
-      },
+            cleanup()
+          },
+          onError: (error) => {
+            console.error('알림 동의 요청에 실패했어요:', error)
+            setNotificationMessage('지금은 알림을 연결할 수 없어요. 잠시 후 다시 시도해 주세요.')
+            trackEvent('notification_agreement_failed')
+            cleanup()
+            resolve(false)
+          },
+        })
+      } catch (error) {
+        console.error('알림 동의 요청을 시작하지 못했어요:', error)
+        setNotificationMessage('토스 앱에서 알림을 다시 연결해 주세요.')
+        trackEvent('notification_agreement_failed')
+        resolve(false)
+      }
     })
-
-    return cleanup
   }
 
-  useEffect(() => {
-    if (isCaptureMode || hasStarted || hasNotificationAgreement || !NOTIFICATION_TEMPLATE_CODE) {
+  async function connectTossLogin() {
+    if (serverSessionId && userKey) {
+      return true
+    }
+
+    try {
+      setNotificationMessage('알림을 보내기 위해 토스 계정을 연결하고 있어요.')
+      const { authorizationCode, referrer } = await appLogin()
+      const response = await fetch(buildApiUrl('/api/users/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ authorizationCode, referrer }),
+      })
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? '토스 계정을 연결하지 못했어요.')
+      }
+
+      const nextUserKey = String(result.user.userKey)
+      const nextUserName = typeof result.user.name === 'string' ? result.user.name.trim() : ''
+      setServerSessionId(String(result.sessionId))
+      setUserKey(nextUserKey)
+      if (nextUserName) {
+        setUserName(nextUserName)
+        setUserNameStatus('decrypted')
+      }
+      trackEvent('toss_login_complete')
+      return true
+    } catch (error) {
+      console.error('토스 로그인에 실패했어요:', error)
+      setNotificationMessage('토스 계정을 연결하지 못했어요. 알림 없이 기록은 계속 사용할 수 있어요.')
+      trackEvent('toss_login_failed')
+      return false
+    }
+  }
+
+  async function handleEnableReminder() {
+    if (!lastAppliedAt || isReminderSetupPending) {
       return
     }
 
-    return requestNotificationOnboarding()
-  }, [hasNotificationAgreement, hasStarted, isCaptureMode])
+    setIsReminderSetupPending(true)
+    try {
+      const isConnected = await connectTossLogin()
+      if (!isConnected) {
+        return
+      }
+
+      if (!hasNotificationAgreement) {
+        await requestNotificationForReminder()
+      }
+    } finally {
+      setIsReminderSetupPending(false)
+    }
+  }
 
   async function requestUserNameFromConsentedData() {
     if (userName) {
@@ -1089,41 +1122,8 @@ export function HomePage() {
     )
   }
 
-  async function ensureUserNameForFaceCapture() {
-    if (userName) {
-      return true
-    }
-
-    const result = await requestUserNameFromConsentedData()
-
-    if (result.userName) {
-      return true
-    }
-
-    if (result.status === 'declined') {
-      setCameraMessage('이름 정보 제공에 동의해야 얼굴 등록을 진행할 수 있어요.')
-    } else if (result.status === 'not_configured') {
-      setCameraMessage('이름 정보 동의 설정이 아직 연결되지 않아 얼굴 등록을 진행할 수 없어요.')
-    } else if (result.status === 'unavailable') {
-      setCameraMessage('지금은 토스에서 이름 정보를 불러올 수 없어 얼굴 등록을 진행할 수 없어요.')
-    } else if (result.status === 'timeout') {
-      setCameraMessage('이름 정보 동의 화면 응답이 지연되고 있어요. 다시 시도해 주세요.')
-    } else if (result.status === 'failed') {
-      setCameraMessage('이름 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.')
-    } else {
-      setCameraMessage('이름 정보를 확인한 뒤 얼굴 등록을 진행해 주세요.')
-    }
-
-    return false
-  }
-
   async function handleOpenCamera() {
-    const canOpenCapture = await ensureUserNameForFaceCapture()
-
-    if (!canOpenCapture) {
-      return
-    }
-
+    trackEvent('camera_start', { has_name_personalization: Boolean(userName) })
     setCameraPreviewImageUri(null)
     setCameraCaptureMessage('')
     await captureFaceImage()
@@ -1143,6 +1143,7 @@ export function HomePage() {
     }
 
     applyCapturedFaceImage(cameraPreviewImageUri, '기준선에 맞춘 얼굴 이미지를 적용했어요.', false)
+    trackEvent('camera_complete', { has_name_personalization: Boolean(userName) })
     handleCloseCameraCapture()
   }
 
@@ -1169,6 +1170,7 @@ export function HomePage() {
           const message = '카메라 권한을 허용한 뒤 다시 촬영해 주세요.'
           setCameraCaptureMessage(isPreviewOpen ? message : '')
           setCameraMessage(message)
+          trackEvent('camera_permission_declined')
           return
         }
       }
@@ -1192,6 +1194,7 @@ export function HomePage() {
         const message = '카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.'
         setCameraCaptureMessage(isPreviewOpen ? message : '')
         setCameraMessage(message)
+        trackEvent('camera_permission_declined')
         return
       }
 
@@ -1206,28 +1209,29 @@ export function HomePage() {
 
   function handlePrimaryAction() {
     if (!lastAppliedAt) {
-      const nextAppliedAt = new Date().toISOString()
-      window.localStorage.setItem(LAST_APPLIED_AT_KEY, nextAppliedAt)
-      if (userKey) {
-        window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, userKey)
-      }
-      setLastAppliedAt(nextAppliedAt)
+      const record = recordSuncareApplication({ source: 'home', ownerKey: userKey })
+      setLastAppliedAt(record.appliedAt)
       setCameraMessage('선크림을 바른 시간을 기록했어요. 이제 이 시각을 기준으로 다음 덧바르기 타이밍을 계산합니다.')
+      trackEvent('first_record_complete', {
+        outdoor_time: outdoorTime,
+        has_personal_face: hasPersonalFaceImage,
+      })
       return
     }
 
     if (stage === 'fresh') {
       setCameraMessage('지금은 보호 상태예요. 다음 확인 시간에 다시 보면 됩니다.')
+      trackEvent('protected_state_checked')
       return
     }
 
-    const nextAppliedAt = new Date().toISOString()
-    window.localStorage.setItem(LAST_APPLIED_AT_KEY, nextAppliedAt)
-    if (userKey) {
-      window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, userKey)
-    }
-    setLastAppliedAt(nextAppliedAt)
+    const record = recordSuncareApplication({ source: 'reapply', ownerKey: userKey })
+    setLastAppliedAt(record.appliedAt)
     setCameraMessage('선크림을 다시 발랐어요. 얼굴 상태를 바로 안전 단계로 되돌렸습니다.')
+    trackEvent('reapply_complete', {
+      previous_stage: stage,
+      outdoor_time: outdoorTime,
+    })
   }
 
   function renderFaceVisual(
@@ -1656,33 +1660,6 @@ export function HomePage() {
         </div>
       )}
 
-      {!isCaptureMode && !hasStarted && (
-        <section className="content-panel content-panel--primary">
-          <div className="toolbar-row">
-            <div>
-              <p className="content-panel__eyebrow">Notification</p>
-              <h3 className="content-panel__title">알림 동의 확인이 필요해요</h3>
-            </div>
-            <span className="status-badge">{notificationAgreement === 'agreementRejected' ? '거부됨' : '재시도'}</span>
-          </div>
-
-          <div className="form-stack">
-            <p className="helper-text">
-              앱 실행 직후 알림 동의 화면을 자동으로 요청합니다. 화면이 보이지 않았거나 실패했다면 여기서 다시 시도할 수 있어요.
-            </p>
-            <p className="helper-text helper-text--tight">{notificationMessage}</p>
-            <button type="button" className="primary-action primary-action--blue" onClick={requestNotificationOnboarding}>
-              알림 동의 다시 요청
-            </button>
-            <button type="button" className="primary-action" onClick={() => setHasStarted(true)}>
-              알림 없이 계속
-            </button>
-          </div>
-        </section>
-      )}
-
-      {(isCaptureMode || hasStarted) && (
-        <>
       <section className="hero-section">
         <p className="eyebrow">썸머핑</p>
         <h2 className="hero-title">얼굴 변화로 덧바를 타이밍을 확인해요</h2>
@@ -1690,61 +1667,62 @@ export function HomePage() {
           {userName ? `${userName}님, ` : ''}
           촬영한 얼굴과 현재 자외선 환경을 함께 반영해, 지금 선케어가 필요한 순간을 직관적으로 보여드립니다.
         </p>
-            {!userName && userNameStatus !== 'idle' && (
+        {!userName && userNameStatus !== 'idle' && (
           <p className="helper-text helper-text--tight">
-            {userNameStatus === 'missing_key' && '이름 암호문은 받았지만 서버 복호화 키 설정을 아직 읽지 못했어요.'}
-            {userNameStatus === 'failed' && '이름 암호문은 받았지만 복호화에 실패했어요. 서버 키나 AAD 설정을 확인해 주세요.'}
-            {userNameStatus === 'not_provided' && '현재 로그인 응답에는 이름 정보가 포함되지 않았어요.'}
-            {userNameStatus === 'not_configured' && '사용자 정보 불러오기 설정이나 이름용 cud 키가 아직 연결되지 않았어요.'}
-            {userNameStatus === 'declined' && '이름 정보 제공 동의가 완료되지 않아 이름을 표시하지 못하고 있어요.'}
-            {userNameStatus === 'unavailable' && '지금은 토스에서 사용자 이름 정보를 불러올 수 없는 상태예요.'}
-            {userNameStatus === 'timeout' && '이름 정보 동의 화면 응답이 지연되고 있어요. 다시 시도해 주세요.'}
+            이름 개인화를 연결하지 못했지만 모든 선케어 기능은 그대로 사용할 수 있어요.
           </p>
         )}
 
         {!isCaptureMode && (
-          <div className="hero-summary-row">
-            <div className="hero-summary-pill">
-              <span className="hero-summary-pill__label">현재 시간</span>
-              <strong>{String(hour).padStart(2, '0')}:00</strong>
-            </div>
-            <div className={uvToneClass}>
-              <div className="uv-card__top">
-                <span className="hero-summary-pill__label">자외선</span>
-                <span className="uv-card__badge">{uvLevelCopy}</span>
+          <>
+            {!lastAppliedAt ? (
+              <button type="button" className="primary-action primary-action--blue" onClick={handlePrimaryAction}>
+                지금 바른 시간 기록하기
+              </button>
+            ) : null}
+            <div className="hero-summary-row">
+              <div className="hero-summary-pill">
+                <span className="hero-summary-pill__label">현재 시간</span>
+                <strong>{String(hour).padStart(2, '0')}:00</strong>
               </div>
-              <strong className="uv-card__value">Lv. {uv}</strong>
-              <div className="uv-scale">
-                <span className={uv <= 2 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--low' : 'uv-scale__chip uv-scale__chip--low'}>낮음</span>
-                <span
-                  className={
-                    uv >= 3 && uv <= 5
-                      ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--medium'
-                      : 'uv-scale__chip uv-scale__chip--medium'
-                  }
-                >
-                  보통
-                </span>
-                <span
-                  className={
-                    uv >= 6 && uv <= 7
-                      ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--high'
-                      : 'uv-scale__chip uv-scale__chip--high'
-                  }
-                >
-                  높음
-                </span>
-                <span className={uv >= 8 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--very-high' : 'uv-scale__chip uv-scale__chip--very-high'}>
-                  매우 높음
-                </span>
+              <div className={uvToneClass}>
+                <div className="uv-card__top">
+                  <span className="hero-summary-pill__label">자외선</span>
+                  <span className="uv-card__badge">{uvLevelCopy}</span>
+                </div>
+                <strong className="uv-card__value">Lv. {uv}</strong>
+                <div className="uv-scale">
+                  <span className={uv <= 2 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--low' : 'uv-scale__chip uv-scale__chip--low'}>낮음</span>
+                  <span
+                    className={
+                      uv >= 3 && uv <= 5
+                        ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--medium'
+                        : 'uv-scale__chip uv-scale__chip--medium'
+                    }
+                  >
+                    보통
+                  </span>
+                  <span
+                    className={
+                      uv >= 6 && uv <= 7
+                        ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--high'
+                        : 'uv-scale__chip uv-scale__chip--high'
+                    }
+                  >
+                    높음
+                  </span>
+                  <span className={uv >= 8 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--very-high' : 'uv-scale__chip uv-scale__chip--very-high'}>
+                    매우 높음
+                  </span>
+                </div>
+                <span className="hero-summary-pill__hint">0~2 · 3~5 · 6~7 · 8+</span>
               </div>
-              <span className="hero-summary-pill__hint">0~2 · 3~5 · 6~7 · 8+</span>
+              <div className="hero-summary-pill">
+                <span className="hero-summary-pill__label">다음 행동</span>
+                <strong>{nextAction}</strong>
+              </div>
             </div>
-            <div className="hero-summary-pill">
-              <span className="hero-summary-pill__label">다음 행동</span>
-              <strong>{nextAction}</strong>
-            </div>
-          </div>
+          </>
         )}
       </section>
 
@@ -1758,10 +1736,10 @@ export function HomePage() {
             <span className="status-badge status-badge--strong">{stageCopy.badge}</span>
           </div>
 
-              <div className="face-stage-card">
+          <div className="face-stage-card">
             {renderFaceVisual(displayStage, {
-              showGuide: hasFaceImage,
-              label: hasFaceImage ? '내 얼굴 변화' : undefined,
+              showGuide: hasPersonalFaceImage,
+              label: hasPersonalFaceImage ? '내 얼굴 변화' : '예시 얼굴 변화',
               userName,
             })}
 
@@ -1871,10 +1849,10 @@ export function HomePage() {
               type="button"
               className="primary-action primary-action--blue"
               onClick={handleOpenCamera}
-              disabled={isUserNameRequestPending}
+              disabled={isCameraCapturePending}
             >
-              {isUserNameRequestPending
-                ? '이름 정보 확인 중...'
+              {isCameraCapturePending
+                ? '카메라 여는 중...'
                 : capturedImageUri
                   ? '다시 촬영 후 맞추기'
                   : '사진 촬영 후 맞추기'}
@@ -1884,9 +1862,14 @@ export function HomePage() {
               피부변화가 이 얼굴 위에 덮입니다.
             </p>
             {!userName && (
-              <p className="helper-text helper-text--tight">
-                얼굴을 처음 등록하는 시점에 이름 정보 제공 동의가 함께 노출될 수 있어요.
-              </p>
+              <button
+                type="button"
+                className="secondary-inline-action"
+                onClick={() => void requestUserNameFromConsentedData()}
+                disabled={isUserNameRequestPending}
+              >
+                {isUserNameRequestPending ? '이름 연결 중...' : '선택: 내 이름으로 개인화하기'}
+              </button>
             )}
             {isUserNameRequestPending && (
               <p className="helper-text helper-text--tight">
@@ -1938,15 +1921,42 @@ export function HomePage() {
           </div>
 
           <div className="summary-card">
-              <strong className="summary-card__value">{adjustedExposure}분</strong>
-              <p className="summary-card__text">
+            <strong className="summary-card__value">{adjustedExposure}분</strong>
+            <p className="summary-card__text">
               현재 누적 노출 시간입니다. {temperature}°C, 자외선 {uv} 단계에서는 일정 시간만 지나도 얼굴
               변화가 빠르게 진행됩니다.
-              </p>
+            </p>
           </div>
+          {lastAppliedAt ? (
+            <>
+              <p className="helper-text reminder-status-copy">{notificationMessage}</p>
+              {!hasNotificationAgreement ? (
+                <button
+                  type="button"
+                  className="primary-action primary-action--blue"
+                  onClick={() => void handleEnableReminder()}
+                  disabled={isReminderSetupPending}
+                >
+                  {isReminderSetupPending ? '알림 연결 중...' : '다음 덧바를 시간 알림 받기'}
+                </button>
+              ) : (
+                <Link className="text-link" to="/reapply?referrer=reminder_card">
+                  덧바름 기록 화면 미리보기
+                </Link>
+              )}
+            </>
+          ) : (
+            <p className="helper-text reminder-status-copy">먼저 선크림을 바른 시간을 기록하면 알림을 선택할 수 있어요.</p>
+          )}
         </section>
       )}
-        </>
+
+      {!isCaptureMode && (
+        <nav className="quick-link-grid" aria-label="선케어 바로가기">
+          <Link to="/today">오늘 자외선</Link>
+          <Link to="/start">바른 시간 기록</Link>
+          <Link to="/history">내 기록</Link>
+        </nav>
       )}
     </div>
   )

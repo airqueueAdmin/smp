@@ -15,6 +15,11 @@ export default defineConfig({
       build: 'vite build',
     },
   },
+  webViewProps: {
+    type: 'partner',
+    pullToRefreshEnabled: false,
+    overScrollMode: 'never',
+  },
   permissions: [{ name: 'camera', access: 'access' }],
   outdir: 'dist',
 })
