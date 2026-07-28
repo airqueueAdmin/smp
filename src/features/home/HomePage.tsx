@@ -207,7 +207,7 @@ export function HomePage() {
         <section className="guide-heading">
           <span className="section-kicker">촬영 가이드</span>
           <h1>얼굴이 잘 보이게<br />한 장만 찍어주세요</h1>
-          <p>라이브 영상은 사용하지 않아요. 기본 카메라로 촬영한 사진 한 장만 확인합니다.</p>
+          <p>기본 카메라로 촬영한 사진 한 장만 확인합니다.</p>
         </section>
 
         <section className="guide-visual-card" aria-label="얼굴 촬영 예시">
