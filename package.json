@@ -2,7 +2,7 @@
   "name": "summer-ping",
   "private": true,
   "version": "0.1.0",
-  "description": "Apps in Toss mini app for summer outing preparation.",
+  "description": "Apps in Toss face-reading mini app using a single native-camera photo.",
   "type": "module",
   "scripts": {
     "dev": "granite dev",

@@ -1,1963 +1,441 @@
 import {
   OpenCameraPermissionError,
-  appLogin,
-  getConsentedUserData,
   openCamera,
-  requestNotificationAgreement,
 } from '@apps-in-toss/web-framework'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
-import { trackEvent, trackImpression, trackScreen } from '../../lib/analytics'
+import { trackEvent, trackScreen } from '../../lib/analytics'
 import {
-  getLastAppliedAt,
-  recordSuncareApplication,
-} from '../suncare/storage'
+  createFaceReading,
+  getFaceReadingHistory,
+  saveFaceReading,
+} from '../face-reading/storage'
 
-type SunscreenStage = 'fresh' | 'fading' | 'warning' | 'burned'
-type OutdoorTime = 'short' | 'medium' | 'long'
-type CaptureMode = 'overview' | 'camera' | 'reminder' | 'landscape' | 'thumbnail'
-type CaptureScenario = {
-  stage: SunscreenStage
-  uv: number
-  hour: number
-  temperature: number
-  exposureMinutes: number
-  lastAppliedAt: string
-  nextAction: string
-  headline: string
-  description: string
-  cameraMessage: string
-}
+type HomeStep = 'home' | 'guide' | 'review'
 
-type FaceRenderPreset = {
-  baseWarmth: number
-  redness: number
-  tan: number
-  freckles: number
-  patches: number
-  dryness: number
-  shadow: number
-  highlight: number
-  saturation: number
-  contrast: number
-}
-
-const NOTIFICATION_AGREEMENT_KEY = 'summer-ping:notification-agreement'
-const USER_KEY_STORAGE_KEY = 'summer-ping:user-key'
-const USER_NAME_STORAGE_KEY = 'summer-ping:user-name'
-const SERVER_SESSION_STORAGE_KEY = 'summer-ping:server-session-id'
-const NOTIFICATION_TEMPLATE_CODE =
-  import.meta.env.VITE_SMART_MESSAGE_TEMPLATE_CODE ?? 'summer-ping-reapply'
-const USER_NAME_CONSENTED_DATA_KEY = import.meta.env.VITE_USER_NAME_CONSENTED_DATA_KEY
-const REMINDER_API_BASE_URL =
-  import.meta.env.VITE_REMINDER_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8787' : '')
-const DEMO_FACE_IMAGE_URI = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300">
+export const DEMO_FACE_IMAGE_URI = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 560">
     <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#EBD8C8"/>
+        <stop offset="100%" stop-color="#C9A98E"/>
+      </linearGradient>
       <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#f3ccae"/>
-        <stop offset="100%" stop-color="#e8b48f"/>
+        <stop offset="0%" stop-color="#F3C7A9"/>
+        <stop offset="100%" stop-color="#DFA27F"/>
       </linearGradient>
       <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#2a3654"/>
-        <stop offset="100%" stop-color="#111827"/>
+        <stop offset="0%" stop-color="#332722"/>
+        <stop offset="100%" stop-color="#171210"/>
       </linearGradient>
     </defs>
-    <rect width="240" height="300" fill="#d9eaff"/>
-    <ellipse cx="120" cy="150" rx="76" ry="94" fill="url(#skin)"/>
-    <path d="M49 137c2-66 42-105 98-105 41 0 71 19 86 52-11-9-26-16-44-18-9 30-31 51-59 61-27 10-54 12-81 10z" fill="url(#hair)"/>
-    <path d="M49 143c5 67 37 113 71 113 35 0 72-48 77-117-14 14-36 25-58 28-33 5-65-4-90-24z" fill="url(#skin)" opacity=".22"/>
-    <ellipse cx="93" cy="149" rx="9" ry="7" fill="#2b3447"/>
-    <ellipse cx="149" cy="149" rx="9" ry="7" fill="#2b3447"/>
-    <path d="M120 166c7 0 12 8 12 17 0 9-5 13-12 13-7 0-12-4-12-13 0-9 5-17 12-17z" fill="#dd9a78" opacity=".75"/>
-    <path d="M87 207c11 12 24 18 40 18 16 0 29-6 41-18" fill="none" stroke="#bc6d60" stroke-linecap="round" stroke-width="8"/>
-    <ellipse cx="75" cy="126" rx="15" ry="28" fill="#2a3654"/>
-    <ellipse cx="164" cy="126" rx="15" ry="28" fill="#2a3654"/>
+    <rect width="420" height="560" fill="url(#bg)"/>
+    <circle cx="330" cy="96" r="72" fill="#F6EEE6" opacity=".38"/>
+    <circle cx="72" cy="470" r="96" fill="#AD8066" opacity=".14"/>
+    <path d="M82 560c14-114 63-165 129-165 69 0 118 51 131 165z" fill="#44302A"/>
+    <ellipse cx="211" cy="282" rx="124" ry="158" fill="url(#skin)"/>
+    <path d="M91 252c-1-123 66-191 151-178 62 9 101 58 104 124-32-10-60-35-76-70-34 64-96 100-179 124z" fill="url(#hair)"/>
+    <path d="M91 238c-16 36-15 80 4 118l18-18-2-101z" fill="#251B18"/>
+    <path d="M326 202c25 50 20 112-6 158l-13-25 1-118z" fill="#251B18"/>
+    <path d="M141 264c20-11 39-11 58 0" fill="none" stroke="#6B4638" stroke-width="7" stroke-linecap="round"/>
+    <path d="M224 264c20-11 39-11 58 0" fill="none" stroke="#6B4638" stroke-width="7" stroke-linecap="round"/>
+    <ellipse cx="171" cy="282" rx="13" ry="9" fill="#2D211D"/>
+    <ellipse cx="254" cy="282" rx="13" ry="9" fill="#2D211D"/>
+    <path d="M210 291c-4 23-9 45-4 58 6 6 15 7 24 2" fill="none" stroke="#B9785D" stroke-width="7" stroke-linecap="round"/>
+    <path d="M169 385c26 17 59 18 87-1" fill="none" stroke="#9D554D" stroke-width="9" stroke-linecap="round"/>
+    <ellipse cx="148" cy="334" rx="29" ry="16" fill="#DF8F79" opacity=".25"/>
+    <ellipse cx="276" cy="334" rx="29" ry="16" fill="#DF8F79" opacity=".25"/>
   </svg>
 `)}` as const
 
-const FACE_RENDER_PRESETS: Record<SunscreenStage, FaceRenderPreset> = {
-  fresh: {
-    baseWarmth: 0.05,
-    redness: 0.06,
-    tan: 0.02,
-    freckles: 0.02,
-    patches: 0.01,
-    dryness: 0.02,
-    shadow: 0.04,
-    highlight: 0.16,
-    saturation: 1.02,
-    contrast: 1.01,
-  },
-  fading: {
-    baseWarmth: 0.1,
-    redness: 0.18,
-    tan: 0.08,
-    freckles: 0.12,
-    patches: 0.08,
-    dryness: 0.12,
-    shadow: 0.08,
-    highlight: 0.11,
-    saturation: 0.99,
-    contrast: 1.02,
-  },
-  warning: {
-    baseWarmth: 0.16,
-    redness: 0.34,
-    tan: 0.17,
-    freckles: 0.3,
-    patches: 0.24,
-    dryness: 0.28,
-    shadow: 0.14,
-    highlight: 0.08,
-    saturation: 0.95,
-    contrast: 1.04,
-  },
-  burned: {
-    baseWarmth: 0.24,
-    redness: 0.4,
-    tan: 0.28,
-    freckles: 0.48,
-    patches: 0.38,
-    dryness: 0.42,
-    shadow: 0.2,
-    highlight: 0.05,
-    saturation: 0.9,
-    contrast: 1.07,
-  },
-}
-
-function createSeededRandom(seed: number) {
-  let current = seed >>> 0
-
-  return () => {
-    current = (current * 1664525 + 1013904223) >>> 0
-    return current / 4294967296
-  }
-}
-
-function getFaceSeed(src: string, stage: SunscreenStage) {
-  let seed = 2166136261
-
-  for (const character of `${stage}:${src}`) {
-    seed ^= character.charCodeAt(0)
-    seed = Math.imul(seed, 16777619)
-  }
-
-  return seed >>> 0
-}
-
-function drawEllipsePath(
-  context: CanvasRenderingContext2D,
-  centerX: number,
-  centerY: number,
-  radiusX: number,
-  radiusY: number,
-) {
-  context.beginPath()
-  context.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2)
-  context.closePath()
-}
-
-function drawCoverImage(
-  context: CanvasRenderingContext2D,
-  image: HTMLImageElement,
-  width: number,
-  height: number,
-) {
-  const scale = Math.max(width / image.width, height / image.height)
-  const drawWidth = image.width * scale
-  const drawHeight = image.height * scale
-  const offsetX = (width - drawWidth) / 2
-  const offsetY = (height - drawHeight) / 2
-
-  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight)
-}
-
-function applyFaceRetouch(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  stage: SunscreenStage,
-  seed: number,
-  mini: boolean,
-) {
-  const preset = FACE_RENDER_PRESETS[stage]
-  const random = createSeededRandom(seed)
-  const centerX = width * 0.5
-  const centerY = height * 0.53
-  const radiusX = width * 0.34
-  const radiusY = height * 0.45
-  const freckleCount = mini ? Math.round(26 * preset.freckles) : Math.round(120 * preset.freckles)
-  const textureCount = mini ? Math.round(30 * preset.dryness) : Math.round(200 * preset.dryness)
-  const patchCount = mini ? Math.max(1, Math.round(3 * preset.patches)) : Math.max(2, Math.round(9 * preset.patches))
-
-  context.save()
-  drawEllipsePath(context, centerX, centerY, radiusX, radiusY)
-  context.clip()
-
-  context.globalCompositeOperation = 'source-over'
-  context.filter = 'none'
-
-  if (preset.baseWarmth > 0) {
-    const warmthGradient = context.createLinearGradient(0, 0, 0, height)
-    warmthGradient.addColorStop(0, `rgba(255, 219, 191, ${0.36 * preset.baseWarmth})`)
-    warmthGradient.addColorStop(0.55, `rgba(233, 150, 98, ${0.48 * preset.baseWarmth})`)
-    warmthGradient.addColorStop(1, `rgba(139, 80, 47, ${0.62 * preset.baseWarmth})`)
-    context.fillStyle = warmthGradient
-    context.fillRect(0, 0, width, height)
-  }
-
-  context.globalCompositeOperation = 'multiply'
-
-  if (preset.tan > 0) {
-    const tanGradient = context.createRadialGradient(centerX, centerY + height * 0.06, width * 0.08, centerX, centerY, width * 0.42)
-    tanGradient.addColorStop(0, `rgba(173, 111, 69, ${0.22 * preset.tan})`)
-    tanGradient.addColorStop(0.7, `rgba(126, 73, 42, ${0.42 * preset.tan})`)
-    tanGradient.addColorStop(1, `rgba(76, 40, 23, ${0.5 * preset.tan})`)
-    context.fillStyle = tanGradient
-    context.fillRect(0, 0, width, height)
-  }
-
-  if (preset.redness > 0) {
-    const cheekAlpha = 0.42 * preset.redness
-    const cheekRadius = radiusX * 0.38
-    const drawCheek = (x: number, y: number, alpha: number) => {
-      const gradient = context.createRadialGradient(x, y, width * 0.02, x, y, cheekRadius)
-      gradient.addColorStop(0, `rgba(210, 52, 52, ${alpha})`)
-      gradient.addColorStop(0.6, `rgba(201, 71, 58, ${alpha * 0.6})`)
-      gradient.addColorStop(1, 'rgba(201, 71, 58, 0)')
-      context.fillStyle = gradient
-      context.fillRect(0, 0, width, height)
-    }
-
-    drawCheek(centerX - radiusX * 0.62, centerY + radiusY * 0.12, cheekAlpha)
-    drawCheek(centerX + radiusX * 0.62, centerY + radiusY * 0.12, cheekAlpha * 0.96)
-    drawCheek(centerX, centerY - radiusY * 0.02, cheekAlpha * 0.38)
-  }
-
-  if (preset.freckles > 0) {
-    context.fillStyle = `rgba(102, 58, 34, ${0.38 * preset.freckles})`
-
-    for (let index = 0; index < freckleCount; index += 1) {
-      const angle = random() * Math.PI * 2
-      const radialDistance = Math.sqrt(random())
-      const x = centerX + Math.cos(angle) * radiusX * radialDistance * 0.96
-      const y = centerY + Math.sin(angle) * radiusY * radialDistance * 0.9
-
-      if (y > centerY + radiusY * 0.44) {
-        continue
-      }
-
-      const radius = mini ? 0.5 + random() * 0.55 : 0.8 + random() * 1.6
-      context.beginPath()
-      context.arc(x, y, radius, 0, Math.PI * 2)
-      context.fill()
-    }
-  }
-
-  if (preset.patches > 0) {
-    context.filter = mini ? 'blur(2px)' : 'blur(7px)'
-
-    for (let index = 0; index < patchCount; index += 1) {
-      const angle = random() * Math.PI * 2
-      const radialDistance = 0.18 + random() * 0.7
-      const x = centerX + Math.cos(angle) * radiusX * radialDistance
-      const y = centerY + Math.sin(angle) * radiusY * radialDistance * 0.88
-      const patchRadius = (mini ? width * 0.04 : width * 0.065) + random() * width * (mini ? 0.02 : 0.05)
-      const patchGradient = context.createRadialGradient(x, y, patchRadius * 0.15, x, y, patchRadius)
-      const alpha = (0.14 + random() * 0.2) * preset.patches
-      patchGradient.addColorStop(0, `rgba(118, 65, 38, ${alpha})`)
-      patchGradient.addColorStop(1, 'rgba(118, 65, 38, 0)')
-      context.fillStyle = patchGradient
-      context.fillRect(0, 0, width, height)
-    }
-  }
-
-  if (preset.dryness > 0) {
-    context.filter = 'none'
-    context.strokeStyle = `rgba(88, 52, 33, ${0.18 * preset.dryness})`
-    context.lineWidth = mini ? 0.35 : 0.55
-
-    for (let index = 0; index < textureCount; index += 1) {
-      const angle = random() * Math.PI * 2
-      const radialDistance = Math.sqrt(random()) * 0.95
-      const x = centerX + Math.cos(angle) * radiusX * radialDistance
-      const y = centerY + Math.sin(angle) * radiusY * radialDistance
-      const length = (mini ? 0.8 : 1.6) + random() * (mini ? 0.7 : 2.2)
-      const direction = random() * Math.PI
-      context.beginPath()
-      context.moveTo(x, y)
-      context.lineTo(x + Math.cos(direction) * length, y + Math.sin(direction) * length)
-      context.stroke()
-    }
-  }
-
-  if (preset.shadow > 0) {
-    context.filter = 'none'
-    const edgeShadow = context.createLinearGradient(0, 0, 0, height)
-    edgeShadow.addColorStop(0, 'rgba(77, 41, 22, 0)')
-    edgeShadow.addColorStop(0.72, `rgba(82, 43, 25, ${0.12 * preset.shadow})`)
-    edgeShadow.addColorStop(1, `rgba(51, 28, 17, ${0.46 * preset.shadow})`)
-    context.fillStyle = edgeShadow
-    context.fillRect(0, 0, width, height)
-  }
-
-  context.globalCompositeOperation = 'screen'
-
-  if (preset.highlight > 0) {
-    const highlight = context.createRadialGradient(centerX, centerY - radiusY * 0.8, width * 0.02, centerX, centerY - radiusY * 0.75, radiusX * 0.8)
-    highlight.addColorStop(0, `rgba(255, 250, 242, ${0.42 * preset.highlight})`)
-    highlight.addColorStop(0.65, `rgba(255, 246, 233, ${0.16 * preset.highlight})`)
-    highlight.addColorStop(1, 'rgba(255, 246, 233, 0)')
-    context.fillStyle = highlight
-    context.fillRect(0, 0, width, height)
-  }
-
-  context.restore()
-}
-
-function applyColorFinish(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  stage: SunscreenStage,
-) {
-  const preset = FACE_RENDER_PRESETS[stage]
-
-  if (stage === 'fresh') {
-    return
-  }
-
-  const tempCanvas = document.createElement('canvas')
-  tempCanvas.width = width
-  tempCanvas.height = height
-  const tempContext = tempCanvas.getContext('2d')
-
-  if (!tempContext) {
-    return
-  }
-
-  tempContext.drawImage(context.canvas, 0, 0)
-  context.clearRect(0, 0, width, height)
-  context.filter = `saturate(${preset.saturation}) contrast(${preset.contrast})`
-  context.drawImage(tempCanvas, 0, 0)
-  context.filter = 'none'
-  context.globalCompositeOperation = 'source-over'
-  context.fillStyle = stage === 'burned' ? 'rgba(96, 58, 34, 0.06)' : 'rgba(122, 72, 42, 0.025)'
-  context.fillRect(0, 0, width, height)
-}
-
-function FaceRetouchCanvas({
-  alt,
-  mini = false,
-  src,
-  stage,
-}: {
-  alt: string
-  mini?: boolean
-  src: string
-  stage: SunscreenStage
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-
-    if (!canvas) {
-      return
-    }
-
-    let cancelled = false
-    const image = new Image()
-    const width = mini ? 104 : 320
-    const height = mini ? 128 : 380
-
-    image.decoding = 'async'
-    image.onload = () => {
-      if (cancelled) {
-        return
-      }
-
-      const context = canvas.getContext('2d')
-
-      if (!context) {
-        return
-      }
-
-      canvas.width = width
-      canvas.height = height
-      context.clearRect(0, 0, width, height)
-      context.imageSmoothingEnabled = true
-      drawCoverImage(context, image, width, height)
-      applyFaceRetouch(context, width, height, stage, getFaceSeed(src, stage), mini)
-      applyColorFinish(context, width, height, stage)
-    }
-    image.src = src
-
-    return () => {
-      cancelled = true
-    }
-  }, [mini, src, stage])
-
-  return <canvas ref={canvasRef} className="face-visual__canvas" role="img" aria-label={alt} />
-}
-
-function FaceAlignmentGuide({ compact = false, camera = false }: { compact?: boolean; camera?: boolean }) {
-  const className = [
-    'face-alignment-guide',
-    compact ? 'face-alignment-guide--compact' : '',
-    camera ? 'face-alignment-guide--camera' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-
+function FaceSymbol() {
   return (
-    <div className={className} aria-hidden="true">
-      <div className="face-alignment-guide__oval" />
-      <div className="face-alignment-guide__line face-alignment-guide__line--eyes" />
-      <div className="face-alignment-guide__line face-alignment-guide__line--nose" />
-      <div className="face-alignment-guide__line face-alignment-guide__line--chin" />
-      <span className="face-alignment-guide__mark face-alignment-guide__mark--left-eye" />
-      <span className="face-alignment-guide__mark face-alignment-guide__mark--right-eye" />
-    </div>
+    <svg className="face-symbol" viewBox="0 0 240 270" aria-hidden="true">
+      <defs>
+        <linearGradient id="faceGlow" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#fffaf1" />
+          <stop offset="100%" stopColor="#ead7bf" />
+        </linearGradient>
+        <linearGradient id="faceLine" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#854c45" />
+          <stop offset="100%" stopColor="#4c2e2b" />
+        </linearGradient>
+      </defs>
+      <circle cx="120" cy="132" r="104" fill="rgba(255,255,255,.13)" />
+      <path
+        d="M120 30c-54 0-86 40-86 98 0 69 38 112 86 112s86-43 86-112c0-58-32-98-86-98Z"
+        fill="url(#faceGlow)"
+      />
+      <path
+        d="M44 109c7-58 37-88 76-88 43 0 74 33 78 91-29-8-52-27-66-55-21 31-51 48-88 52Z"
+        fill="#3a2825"
+      />
+      <path d="M73 125c13-8 26-8 39 0M132 125c13-8 26-8 39 0" fill="none" stroke="url(#faceLine)" strokeLinecap="round" strokeWidth="5" />
+      <circle cx="94" cy="137" r="5" fill="#3f2b28" />
+      <circle cx="151" cy="137" r="5" fill="#3f2b28" />
+      <path d="M120 145c-2 14-5 27-2 34 5 4 11 4 17 1" fill="none" stroke="#b37d68" strokeLinecap="round" strokeWidth="5" />
+      <path d="M90 196c18 12 42 12 61 0" fill="none" stroke="#9f5c57" strokeLinecap="round" strokeWidth="6" />
+      <path d="M22 132h24M194 132h24M120 4v22M120 240v23" fill="none" stroke="rgba(255,255,255,.64)" strokeLinecap="round" strokeWidth="3" />
+    </svg>
   )
-}
-
-function getCaptureScenario(capture: string | null): CaptureScenario | null {
-  switch (capture as CaptureMode | null) {
-    case 'overview':
-      return {
-        stage: 'warning',
-        uv: 7,
-        hour: 13,
-        temperature: 31,
-        exposureMinutes: 114,
-        lastAppliedAt: '2026-07-02T11:18:00+09:00',
-        nextAction: '지금 덧바를 시간',
-        headline: '내 얼굴이 타기 전에 바로 알려줘요',
-        description: '자외선 단계와 마지막 도포 시점을 합쳐, 얼굴 변화로 덧바를 타이밍을 직관적으로 보여줍니다.',
-        cameraMessage: '촬영한 얼굴에 붉어짐과 탄 톤 변화가 그대로 겹쳐 보여요.',
-      }
-    case 'camera':
-      return {
-        stage: 'fading',
-        uv: 5,
-        hour: 10,
-        temperature: 28,
-        exposureMinutes: 62,
-        lastAppliedAt: '2026-07-02T09:24:00+09:00',
-        nextAction: '30분 안에 덧바르기 권장',
-        headline: '촬영 뒤 얼굴 위치를 기준선에 맞춰요',
-        description: '기본 카메라로 찍은 사진 위에서 얼굴 크기와 위치를 조정해 결과 카드에 맞게 정렬합니다.',
-        cameraMessage: '사진을 찍은 뒤 타원과 기준선에 맞춰 얼굴 크기와 위치를 조정합니다.',
-      }
-    case 'reminder':
-      return {
-        stage: 'fresh',
-        uv: 6,
-        hour: 12,
-        temperature: 30,
-        exposureMinutes: 24,
-        lastAppliedAt: '2026-07-02T11:46:00+09:00',
-        nextAction: '14:00 전에 한 번 더 확인',
-        headline: '앱을 나가도 마지막 도포 시점을 유지해요',
-        description: '마지막으로 바른 시간은 로컬에 유지하고, 알림 동의가 있으면 서버 예약까지 이어집니다.',
-        cameraMessage: '방금 덧바른 직후의 건강한 얼굴 상태를 기본값으로 유지합니다.',
-      }
-    case 'landscape':
-      return {
-        stage: 'warning',
-        uv: 7,
-        hour: 14,
-        temperature: 31,
-        exposureMinutes: 126,
-        lastAppliedAt: '2026-07-02T11:54:00+09:00',
-        nextAction: '지금 덧바를 시간',
-        headline: '얼굴 변화로 덧바를 타이밍을 확인해요',
-        description: '촬영한 얼굴과 자외선 변화를 함께 보여줘, 다시 발라야 할 순간을 바로 이해할 수 있는 선케어 서비스입니다.',
-        cameraMessage: '촬영한 얼굴이 붉어지고 어두워지는 변화를 단계별로 한눈에 확인할 수 있어요.',
-      }
-    case 'thumbnail':
-      return {
-        stage: 'warning',
-        uv: 7,
-        hour: 14,
-        temperature: 31,
-        exposureMinutes: 126,
-        lastAppliedAt: '2026-07-02T11:54:00+09:00',
-        nextAction: '지금 덧바를 시간',
-        headline: '얼굴 변화로 덧바를 타이밍을 확인해요',
-        description: '실제 얼굴 변화로 다시 발라야 할 순간을 알려주는 썸머핑',
-        cameraMessage: '자외선이 강한 시간대에는 얼굴 변화가 더 빠르게 보입니다.',
-      }
-    default:
-      return null
-  }
-}
-
-function getUvLevelCopy(uv: number) {
-  if (uv >= 8) {
-    return '매우 높음'
-  }
-
-  if (uv >= 6) {
-    return '높음'
-  }
-
-  if (uv >= 3) {
-    return '보통'
-  }
-
-  return '낮음'
-}
-
-function getUvToneClass(uv: number) {
-  if (uv >= 8) {
-    return 'uv-card uv-card--very-high'
-  }
-
-  if (uv >= 6) {
-    return 'uv-card uv-card--high'
-  }
-
-  if (uv >= 3) {
-    return 'uv-card uv-card--medium'
-  }
-
-  return 'uv-card uv-card--low'
-}
-
-function resolveAutoConditions(now = new Date()) {
-  const hour = now.getHours()
-  const month = now.getMonth() + 1
-
-  let uv = 4
-  let temperature = 27
-
-  if (month >= 6 && month <= 8) {
-    uv = 6
-    temperature = 30
-  }
-
-  if (hour >= 11 && hour <= 16) {
-    uv += 2
-    temperature += 1
-  }
-
-  return { hour, uv, temperature }
-}
-
-function getExposureMinutes(lastAppliedMinutesAgo: number, outdoorTime: OutdoorTime) {
-  const outdoorBonus = outdoorTime === 'medium' ? 20 : outdoorTime === 'long' ? 45 : 0
-  return Math.max(0, lastAppliedMinutesAgo + outdoorBonus)
-}
-
-function getSunscreenStage(exposureMinutes: number, uv: number): SunscreenStage {
-  const weightedExposure = exposureMinutes + Math.max(0, uv - 5) * 12
-
-  if (weightedExposure >= 185) {
-    return 'burned'
-  }
-
-  if (weightedExposure >= 130) {
-    return 'warning'
-  }
-
-  if (weightedExposure >= 80) {
-    return 'fading'
-  }
-
-  return 'fresh'
-}
-
-function getStageCopy(stage: SunscreenStage) {
-  if (stage === 'fresh') {
-    return {
-      badge: '안전',
-      title: '지금은 피부 보호막이 비교적 안정적이에요.',
-      body: '지금처럼 제때 덧바르면 얼굴 변화가 크게 진행되지 않아요.',
-      button: '피부 보호 중',
-      level: 18,
-    }
-  }
-
-  if (stage === 'fading') {
-    return {
-      badge: '희미해짐',
-      title: '선크림 효과가 서서히 약해지고 있어요.',
-      body: '이 단계부터는 얼굴 이미지가 살짝 붉어지는 변화가 시작됩니다.',
-      button: '지금 덧바르기',
-      level: 42,
-    }
-  }
-
-  if (stage === 'warning') {
-    return {
-      badge: '경고',
-      title: '지금 덧바르지 않으면 피부 표현이 빠르게 타요.',
-      body: '촬영한 얼굴이 눈에 띄게 어두워지고 피부결이 거칠어지는 단계입니다.',
-      button: '즉시 덧바르기',
-      level: 72,
-    }
-  }
-
-  return {
-    badge: '탐',
-    title: '이미 늦었어요. 얼굴 이미지가 탄 상태로 바뀝니다.',
-    body: '다음 외출부터는 특정 시간대 이전에 다시 바르도록 습관을 만들어야 합니다.',
-    button: '다음 알림 설정',
-    level: 94,
-  }
-}
-
-function getPendingApplicationCopy() {
-  return {
-    badge: '기록 필요',
-    title: '선크림을 바른 직후 시간을 먼저 기록해 주세요.',
-    body: '얼굴 촬영 후 선크림을 바르면, 그 시각을 기준으로 다음 덧바르기 타이밍과 피부 변화를 계산합니다.',
-    button: '지금 선크림 바르기',
-    level: 8,
-  }
-}
-
-function getFaceToneClass(stage: SunscreenStage) {
-  if (stage === 'fresh') {
-    return 'face-visual face-visual--fresh'
-  }
-
-  if (stage === 'fading') {
-    return 'face-visual face-visual--fading'
-  }
-
-  if (stage === 'warning') {
-    return 'face-visual face-visual--warning'
-  }
-
-  return 'face-visual face-visual--burned'
-}
-
-function getNextAction(stage: SunscreenStage, hour: number) {
-  if (stage === 'fresh') {
-    return `${hour + 2}:00 전에 한 번 더 확인`
-  }
-
-  if (stage === 'fading') {
-    return '30분 안에 덧바르기 권장'
-  }
-
-  if (stage === 'warning') {
-    return '지금 덧바를 시간'
-  }
-
-  return '다음 외출 전 리마인드 필수'
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-}
-
-function getInitialNotificationAgreement() {
-  return window.localStorage.getItem(NOTIFICATION_AGREEMENT_KEY) ?? 'unknown'
-}
-
-function getInitialUserKey() {
-  return window.localStorage.getItem(USER_KEY_STORAGE_KEY) ?? ''
-}
-
-function getInitialUserName() {
-  return window.localStorage.getItem(USER_NAME_STORAGE_KEY) ?? ''
-}
-
-function getInitialServerSessionId() {
-  return window.localStorage.getItem(SERVER_SESSION_STORAGE_KEY) ?? ''
-}
-
-function buildApiUrl(path: string) {
-  return REMINDER_API_BASE_URL ? `${REMINDER_API_BASE_URL}${path}` : path
-}
-
-function hasCompletedNotificationAgreement(agreement: string) {
-  return agreement === 'newAgreement' || agreement === 'alreadyAgreed'
-}
-
-function getUserInfoErrorCode(error: unknown) {
-  if (!error || typeof error !== 'object' || !('code' in error)) {
-    return ''
-  }
-
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' ? code : ''
 }
 
 export function HomePage() {
-  const [searchParams] = useSearchParams()
-  const location = useLocation()
-  const [lastAppliedAt, setLastAppliedAt] = useState(() => getLastAppliedAt())
-  const [outdoorTime, setOutdoorTime] = useState<OutdoorTime>('medium')
-  const [hasHat, setHasHat] = useState(false)
-  const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null)
-  const [faceScale, setFaceScale] = useState(1)
-  const [faceOffsetY, setFaceOffsetY] = useState(0)
-  const [isCameraCaptureOpen, setIsCameraCaptureOpen] = useState(false)
-  const [isCameraCapturePending, setIsCameraCapturePending] = useState(false)
-  const [cameraPreviewImageUri, setCameraPreviewImageUri] = useState<string | null>(null)
-  const [cameraCaptureMessage, setCameraCaptureMessage] = useState('')
-  const [cameraMessage, setCameraMessage] = useState('아직 촬영한 얼굴 이미지가 없어요.')
-  const [notificationAgreement, setNotificationAgreement] = useState(() => getInitialNotificationAgreement())
-  const [userKey, setUserKey] = useState(() => getInitialUserKey())
-  const [userName, setUserName] = useState(() => getInitialUserName())
-  const [isUserNameRequestPending, setIsUserNameRequestPending] = useState(false)
-  const [userNameStatus, setUserNameStatus] = useState<
-    'idle' | 'decrypted' | 'missing_key' | 'failed' | 'not_provided' | 'not_configured' | 'declined' | 'unavailable' | 'timeout'
-  >(() => (getInitialUserName() ? 'decrypted' : 'idle'))
-  const [notificationMessage, setNotificationMessage] = useState(
-    '선크림을 바른 시간을 기록한 뒤 원할 때 알림을 켤 수 있어요.',
+  const navigate = useNavigate()
+  const fallbackInputRef = useRef<HTMLInputElement | null>(null)
+  const [step, setStep] = useState<HomeStep>(() =>
+    new URLSearchParams(window.location.search).get('preview') === 'guide' ? 'guide' : 'home',
   )
-  const [serverSessionId, setServerSessionId] = useState(() => getInitialServerSessionId())
-  const [isReminderSetupPending, setIsReminderSetupPending] = useState(false)
-  const hasTrackedHomeScreen = useRef(false)
-  const hasTrackedReminderOffer = useRef(false)
-  const capture = searchParams.get('capture')
-  const captureScenario = useMemo(() => getCaptureScenario(capture), [capture])
-  const [now, setNow] = useState(() => new Date())
-  const { hour, uv, temperature } = useMemo(() => resolveAutoConditions(now), [now])
-
-  const isOverviewCapture = capture === 'overview'
-  const isCameraCapture = capture === 'camera'
-  const isReminderCapture = capture === 'reminder'
-  const isLandscapeCapture = capture === 'landscape'
-  const isThumbnailCapture = capture === 'thumbnail'
-  const isCaptureMode = capture !== null
-
-  const lastAppliedMinutesAgo = useMemo(() => {
-    if (!lastAppliedAt) {
-      return 0
-    }
-
-    const diffMs = now.getTime() - new Date(lastAppliedAt).getTime()
-    return Math.max(0, Math.floor(diffMs / (1000 * 60)))
-  }, [lastAppliedAt, now])
-  const canScheduleCurrentApplication = Boolean(lastAppliedAt) && lastAppliedMinutesAgo <= 30
-  const exposureMinutes = useMemo(
-    () => getExposureMinutes(lastAppliedMinutesAgo, outdoorTime),
-    [lastAppliedMinutesAgo, outdoorTime],
-  )
-  const adjustedExposure = hasHat ? Math.max(0, exposureMinutes - 18) : exposureMinutes
-  const stage = useMemo(() => getSunscreenStage(adjustedExposure, uv), [adjustedExposure, uv])
-  const displayHour = captureScenario?.hour ?? hour
-  const displayUv = captureScenario?.uv ?? uv
-  const displayTemperature = captureScenario?.temperature ?? temperature
-  const displayExposure = captureScenario?.exposureMinutes ?? adjustedExposure
-  const displayStage = captureScenario?.stage ?? stage
-  const isAwaitingFirstApplication = !captureScenario && !lastAppliedAt
-  const stageCopy = useMemo(
-    () => (isAwaitingFirstApplication ? getPendingApplicationCopy() : getStageCopy(displayStage)),
-    [displayStage, isAwaitingFirstApplication],
-  )
-  const nextAction = captureScenario?.nextAction ?? (
-    isAwaitingFirstApplication ? '지금 선크림 바른 시간 기록' : getNextAction(displayStage, displayHour)
-  )
-  const uvLevelCopy = getUvLevelCopy(displayUv)
-  const uvToneClass = getUvToneClass(displayUv)
-  const displayLastAppliedAt = captureScenario?.lastAppliedAt ?? lastAppliedAt
-  const formattedLastAppliedAt = displayLastAppliedAt ? formatDateTime(displayLastAppliedAt) : ''
-  const displayFaceImageUri = captureScenario ? DEMO_FACE_IMAGE_URI : capturedImageUri ?? DEMO_FACE_IMAGE_URI
-  const hasFaceImage = Boolean(displayFaceImageUri)
-  const hasPersonalFaceImage = Boolean(capturedImageUri)
-  const faceImageStyle = {
-    transform: `translateX(-50%) translateY(${faceOffsetY}px) scale(${faceScale})`,
-  }
-  const cameraPreviewImageStyle = {
-    transform: `translateY(${faceOffsetY}px) scale(${faceScale})`,
-  }
-  const faceImageMiniStyle = {
-    transform: `translateX(-50%) translateY(${Math.round(faceOffsetY * 0.32)}px) scale(${faceScale})`,
-  }
-  const displayFaceImageStyle = captureScenario
-    ? { transform: 'translateX(-50%) translateY(4px) scale(1.08)' }
-    : faceImageStyle
-  const displayFaceImageMiniStyle = captureScenario
-    ? { transform: 'translateX(-50%) translateY(1px) scale(1.08)' }
-    : faceImageMiniStyle
-  const displayCameraMessage = captureScenario?.cameraMessage ?? cameraMessage
-  const hasNotificationAgreement = hasCompletedNotificationAgreement(notificationAgreement)
+  const [capturedImageUri, setCapturedImageUri] = useState('')
+  const [isCameraPending, setIsCameraPending] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [cameraMessage, setCameraMessage] = useState('')
+  const [recentResult] = useState(() => getFaceReadingHistory()[0] ?? null)
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setNow(new Date())
-    }, 60_000)
-
-    return () => window.clearInterval(intervalId)
-  }, [])
-
-  useEffect(() => {
-    if (isCaptureMode || hasTrackedHomeScreen.current) {
-      return
-    }
-
-    hasTrackedHomeScreen.current = true
-    trackScreen('suncare_home_screen', {
-      path: location.pathname,
-      is_returning: Boolean(lastAppliedAt),
-      notification_enabled: hasNotificationAgreement,
+    trackScreen('face_reading_home_screen', {
+      has_previous_result: Boolean(recentResult),
     })
-    trackImpression('core_value_preview_seen', {
-      has_personal_face: hasPersonalFaceImage,
-    })
-  }, [hasNotificationAgreement, hasPersonalFaceImage, isCaptureMode, lastAppliedAt, location.pathname])
+  }, [recentResult])
 
-  useEffect(() => {
-    if (!lastAppliedAt || hasNotificationAgreement || hasTrackedReminderOffer.current) {
-      return
-    }
-
-    hasTrackedReminderOffer.current = true
-    trackImpression('reminder_offer_seen', { outdoor_time: outdoorTime })
-  }, [hasNotificationAgreement, lastAppliedAt, outdoorTime])
-
-  useEffect(() => {
-    if (!isCameraCaptureOpen) {
-      return
-    }
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
-  }, [isCameraCaptureOpen])
-
-  useEffect(() => {
-    if (!userKey) {
-      return
-    }
-
-    window.localStorage.setItem(USER_KEY_STORAGE_KEY, userKey)
-  }, [userKey])
-
-  useEffect(() => {
-    if (!serverSessionId) {
-      return
-    }
-
-    window.localStorage.setItem(SERVER_SESSION_STORAGE_KEY, serverSessionId)
-  }, [serverSessionId])
-
-  useEffect(() => {
-    if (!userName) {
-      return
-    }
-
-    window.localStorage.setItem(USER_NAME_STORAGE_KEY, userName)
-  }, [userName])
-
-  useEffect(() => {
-    if (isCaptureMode) {
-      return
-    }
-
-    if (hasNotificationAgreement) {
-      setNotificationMessage('덧바를 시간 알림이 연결되어 있어요.')
-      return
-    }
-
-    if (!NOTIFICATION_TEMPLATE_CODE) {
-      setNotificationMessage('알림 기능은 준비 중이지만 선케어 기록은 정상적으로 사용할 수 있어요.')
-    }
-  }, [hasNotificationAgreement, isCaptureMode])
-
-  useEffect(() => {
-    if (
-      !hasNotificationAgreement ||
-      !serverSessionId ||
-      !lastAppliedAt ||
-      !canScheduleCurrentApplication
-    ) {
-      return
-    }
-
-    const controller = new AbortController()
-
-    fetch(buildApiUrl('/api/reminders/schedule'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId: serverSessionId,
-        lastAppliedAt,
-        outdoorTime,
-        notificationAgreement,
-      }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const result = await response.json()
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.localStorage.removeItem(SERVER_SESSION_STORAGE_KEY)
-            setServerSessionId('')
-            setUserKey('')
-          }
-          throw new Error(result?.error ?? '리마인드 예약에 실패했어요.')
-        }
-
-        setNotificationMessage(`다음 알림은 ${formatDateTime(result.nextReminderAt)}에 받을 수 있어요.`)
-        trackEvent('reminder_schedule_success', {
-          outdoor_time: outdoorTime,
-          configured: Boolean(result.configured),
-        })
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return
-        }
-
-        setNotificationMessage(error instanceof Error ? error.message : '리마인드 예약 동기화에 실패했어요.')
-        trackEvent('reminder_schedule_failed', { outdoor_time: outdoorTime })
-      })
-
-    return () => controller.abort()
-  }, [
-    hasNotificationAgreement,
-    lastAppliedAt,
-    canScheduleCurrentApplication,
-    notificationAgreement,
-    outdoorTime,
-    serverSessionId,
-  ])
-
-  function requestNotificationForReminder() {
-    if (!NOTIFICATION_TEMPLATE_CODE) {
-      setNotificationMessage('알림 기능은 준비 중이에요. 기록은 계속 사용할 수 있어요.')
-      return Promise.resolve(false)
-    }
-
-    trackEvent('reminder_offer_accepted')
-    return new Promise<boolean>((resolve) => {
-      try {
-        const cleanup = requestNotificationAgreement({
-          options: {
-            templateCode: NOTIFICATION_TEMPLATE_CODE,
-          },
-          onEvent: ({ type }) => {
-            window.localStorage.setItem(NOTIFICATION_AGREEMENT_KEY, type)
-            setNotificationAgreement(type)
-
-            if (type === 'newAgreement' || type === 'alreadyAgreed') {
-              setNotificationMessage('알림 동의를 완료했어요. 다음 덧바를 시간을 예약할게요.')
-              trackEvent('notification_agreed', { agreement_type: type })
-              resolve(true)
-            } else {
-              setNotificationMessage('알림 없이도 선케어 기록은 계속 사용할 수 있어요.')
-              trackEvent('notification_declined')
-              resolve(false)
-            }
-
-            cleanup()
-          },
-          onError: (error) => {
-            console.error('알림 동의 요청에 실패했어요:', error)
-            setNotificationMessage('지금은 알림을 연결할 수 없어요. 잠시 후 다시 시도해 주세요.')
-            trackEvent('notification_agreement_failed')
-            cleanup()
-            resolve(false)
-          },
-        })
-      } catch (error) {
-        console.error('알림 동의 요청을 시작하지 못했어요:', error)
-        setNotificationMessage('토스 앱에서 알림을 다시 연결해 주세요.')
-        trackEvent('notification_agreement_failed')
-        resolve(false)
-      }
-    })
+  function openGuide() {
+    setCameraMessage('')
+    setStep('guide')
+    trackEvent('face_reading_start')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  async function connectTossLogin() {
-    if (serverSessionId && userKey) {
-      return true
+  async function handleNativeCamera() {
+    if (isCameraPending) {
+      return
     }
+
+    setIsCameraPending(true)
+    setCameraMessage('')
 
     try {
-      setNotificationMessage('알림을 보내기 위해 토스 계정을 연결하고 있어요.')
-      const { authorizationCode, referrer } = await appLogin()
-      const response = await fetch(buildApiUrl('/api/users/login'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ authorizationCode, referrer }),
-      })
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result?.error ?? '토스 계정을 연결하지 못했어요.')
-      }
-
-      const nextUserKey = String(result.user.userKey)
-      const nextUserName = typeof result.user.name === 'string' ? result.user.name.trim() : ''
-      setServerSessionId(String(result.sessionId))
-      setUserKey(nextUserKey)
-      if (nextUserName) {
-        setUserName(nextUserName)
-        setUserNameStatus('decrypted')
-      }
-      trackEvent('toss_login_complete')
-      return true
-    } catch (error) {
-      console.error('토스 로그인에 실패했어요:', error)
-      setNotificationMessage('토스 계정을 연결하지 못했어요. 알림 없이 기록은 계속 사용할 수 있어요.')
-      trackEvent('toss_login_failed')
-      return false
-    }
-  }
-
-  async function handleEnableReminder() {
-    if (!lastAppliedAt || isReminderSetupPending) {
-      return
-    }
-
-    setIsReminderSetupPending(true)
-    try {
-      const isConnected = await connectTossLogin()
-      if (!isConnected) {
-        return
-      }
-
-      if (!hasNotificationAgreement) {
-        await requestNotificationForReminder()
-      }
-    } finally {
-      setIsReminderSetupPending(false)
-    }
-  }
-
-  async function requestUserNameFromConsentedData() {
-    if (userName) {
-      return { userName, status: 'decrypted' as const }
-    }
-
-    if (!USER_NAME_CONSENTED_DATA_KEY) {
-      setUserNameStatus('not_configured')
-      return { userName: '', status: 'not_configured' as const }
-    }
-
-    try {
-      setIsUserNameRequestPending(true)
-      setCameraMessage('이름 정보 제공 동의 여부를 확인하고 있어요.')
-      const data = await Promise.race([
-        getConsentedUserData({
-          consentedUserDataKey: USER_NAME_CONSENTED_DATA_KEY,
-          shouldRequestAgreementWhenUserDeclined: true,
-        }),
-        new Promise<never>((_, reject) => {
-          window.setTimeout(() => {
-            reject({ code: 'TIMEOUT' })
-          }, 8000)
-        }),
-      ])
-      const nextUserName = typeof data?.USER_NAME === 'string' ? data.USER_NAME.trim() : ''
-
-      if (nextUserName) {
-        setUserName(nextUserName)
-        setUserNameStatus('decrypted')
-        return { userName: nextUserName, status: 'decrypted' as const }
-      }
-
-      setUserNameStatus('not_provided')
-      return { userName: '', status: 'not_provided' as const }
-    } catch (error) {
-      const code = getUserInfoErrorCode(error)
-
-      if (code === 'TIMEOUT') {
-        setUserNameStatus('timeout')
-        return { userName: '', status: 'timeout' as const }
-      }
-
-      if (code === 'USER_DECLINED' || code === 'CANCELED') {
-        setUserNameStatus('declined')
-        return { userName: '', status: 'declined' as const }
-      }
-
-      if (code === 'TERMS_NOT_SET' || code === 'INVALID_REQUEST') {
-        setUserNameStatus('not_configured')
-        return { userName: '', status: 'not_configured' as const }
-      }
-
-      if (code === 'UNAVAILABLE') {
-        setUserNameStatus('unavailable')
-        return { userName: '', status: 'unavailable' as const }
-      }
-
-      console.error('사용자 이름 불러오기에 실패했어요:', error)
-      setUserNameStatus('failed')
-      return { userName: '', status: 'failed' as const }
-    } finally {
-      setIsUserNameRequestPending(false)
-    }
-  }
-
-  function applyCapturedFaceImage(imageUri: string, successMessage: string, resetPosition = true) {
-    setCapturedImageUri(imageUri)
-    if (resetPosition) {
-      setFaceScale(1)
-      setFaceOffsetY(0)
-    }
-    setCameraMessage(
-      lastAppliedAt
-        ? `${successMessage} 이제 단계별 피부 변화가 이 얼굴 위에 반영됩니다.`
-        : `${successMessage} 이제 선크림을 바른 직후 버튼을 눌러 시간을 기록해 주세요.`,
-    )
-  }
-
-  async function handleOpenCamera() {
-    trackEvent('camera_start', { has_name_personalization: Boolean(userName) })
-    setCameraPreviewImageUri(null)
-    setCameraCaptureMessage('')
-    await captureFaceImage()
-  }
-
-  function handleCloseCameraCapture() {
-    setIsCameraCaptureOpen(false)
-    setIsCameraCapturePending(false)
-    setCameraPreviewImageUri(null)
-    setCameraCaptureMessage('')
-  }
-
-  function handleUseCameraPreview() {
-    if (!cameraPreviewImageUri) {
-      setCameraCaptureMessage('사용할 촬영 화면이 아직 없어요.')
-      return
-    }
-
-    applyCapturedFaceImage(cameraPreviewImageUri, '기준선에 맞춘 얼굴 이미지를 적용했어요.', false)
-    trackEvent('camera_complete', { has_name_personalization: Boolean(userName) })
-    handleCloseCameraCapture()
-  }
-
-  function handleRetakeCameraPreview() {
-    setCameraCaptureMessage('')
-    void captureFaceImage()
-  }
-
-  async function captureFaceImage() {
-    const isPreviewOpen = isCameraCaptureOpen
-
-    try {
-      setIsCameraCapturePending(true)
-      if (isPreviewOpen) {
-        setCameraCaptureMessage('카메라를 열고 있어요.')
-      }
-
       const permission = await openCamera.getPermission()
 
       if (permission !== 'allowed') {
         const requestedPermission = await openCamera.openPermissionDialog()
-
         if (requestedPermission !== 'allowed') {
-          const message = '카메라 권한을 허용한 뒤 다시 촬영해 주세요.'
-          setCameraCaptureMessage(isPreviewOpen ? message : '')
-          setCameraMessage(message)
-          trackEvent('camera_permission_declined')
+          setCameraMessage('카메라 권한을 허용한 뒤 다시 촬영해 주세요.')
+          trackEvent('face_camera_permission_declined')
           return
         }
       }
 
-      const response = await openCamera({ base64: true, maxWidth: 720 })
+      const response = await openCamera({ base64: true, maxWidth: 1080 })
       if (!response?.dataUri) {
-        const message = '촬영을 완료하지 않았어요. 다시 시도해 주세요.'
-        setCameraCaptureMessage(isPreviewOpen ? message : '')
-        setCameraMessage(message)
+        setCameraMessage('촬영을 완료하지 않았어요. 다시 시도해 주세요.')
         return
       }
 
-      const imageUri = response.dataUri.startsWith('data:') ? response.dataUri : `data:image/jpeg;base64,${response.dataUri}`
-      setFaceScale(1)
-      setFaceOffsetY(0)
-      setCameraPreviewImageUri(imageUri)
-      setCameraCaptureMessage('')
-      setIsCameraCaptureOpen(true)
+      const imageUri = response.dataUri.startsWith('data:')
+        ? response.dataUri
+        : `data:image/jpeg;base64,${response.dataUri}`
+
+      setCapturedImageUri(imageUri)
+      setStep('review')
+      trackEvent('face_camera_capture_complete')
+      window.scrollTo({ top: 0 })
     } catch (error) {
       if (error instanceof OpenCameraPermissionError) {
-        const message = '카메라 권한이 거부되었어요. 권한 허용 후 다시 촬영해 주세요.'
-        setCameraCaptureMessage(isPreviewOpen ? message : '')
-        setCameraMessage(message)
-        trackEvent('camera_permission_declined')
-        return
+        setCameraMessage('카메라 권한이 꺼져 있어요. 토스 설정에서 권한을 허용해 주세요.')
+        trackEvent('face_camera_permission_declined')
+      } else {
+        console.error('기본 카메라를 여는 데 실패했어요:', error)
+        setCameraMessage('지금은 기본 카메라를 열 수 없어요. 아래의 사진 선택을 이용해 주세요.')
       }
-
-      console.error('사진을 가져오는 데 실패했어요:', error)
-      const message = '촬영을 완료하지 않았어요. 다시 시도해 주세요.'
-      setCameraCaptureMessage(isPreviewOpen ? message : '')
-      setCameraMessage(message)
     } finally {
-      setIsCameraCapturePending(false)
+      setIsCameraPending(false)
     }
   }
 
-  function handlePrimaryAction() {
-    if (!lastAppliedAt) {
-      const record = recordSuncareApplication({ source: 'home', ownerKey: userKey })
-      setLastAppliedAt(record.appliedAt)
-      setCameraMessage('선크림을 바른 시간을 기록했어요. 이제 이 시각을 기준으로 다음 덧바르기 타이밍을 계산합니다.')
-      trackEvent('first_record_complete', {
-        outdoor_time: outdoorTime,
-        has_personal_face: hasPersonalFaceImage,
-      })
+  function handleFallbackImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) {
       return
     }
 
-    if (stage === 'fresh') {
-      setCameraMessage('지금은 보호 상태예요. 다음 확인 시간에 다시 보면 됩니다.')
-      trackEvent('protected_state_checked')
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        return
+      }
+
+      setCapturedImageUri(reader.result)
+      setCameraMessage('')
+      setStep('review')
+      trackEvent('face_image_selected')
+      window.scrollTo({ top: 0 })
+    }
+    reader.onerror = () => setCameraMessage('사진을 불러오지 못했어요. 다른 사진으로 다시 시도해 주세요.')
+    reader.readAsDataURL(file)
+    event.target.value = ''
+  }
+
+  async function handleAnalyze() {
+    if (!capturedImageUri || isAnalyzing) {
       return
     }
 
-    const record = recordSuncareApplication({ source: 'reapply', ownerKey: userKey })
-    setLastAppliedAt(record.appliedAt)
-    setCameraMessage('선크림을 다시 발랐어요. 얼굴 상태를 바로 안전 단계로 되돌렸습니다.')
-    trackEvent('reapply_complete', {
-      previous_stage: stage,
-      outdoor_time: outdoorTime,
+    setIsAnalyzing(true)
+    trackEvent('face_reading_analysis_start')
+
+    const result = createFaceReading(capturedImageUri)
+    saveFaceReading(result)
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1200))
+    navigate('/result', {
+      state: {
+        imageUri: capturedImageUri,
+        record: result,
+      },
     })
   }
 
-  function renderFaceVisual(
-    visualStage: SunscreenStage,
-    options?: { mini?: boolean; showGuide?: boolean; label?: string; userName?: string },
-  ) {
-    const mini = options?.mini ?? false
-    const subjectClassName = mini ? 'face-visual__subject face-visual__subject--mini' : 'face-visual__subject'
-    const subjectStyle = mini ? displayFaceImageMiniStyle : displayFaceImageStyle
-
+  if (step === 'guide') {
     return (
-      <div className={getFaceToneClass(visualStage)}>
-        {!mini && options?.userName ? <span className="face-visual__name">{options.userName}님</span> : null}
-        <div className={subjectClassName} style={hasFaceImage ? subjectStyle : undefined}>
-          {hasFaceImage ? (
-            <FaceRetouchCanvas
-              alt={options?.label ?? '얼굴 상태'}
-              mini={mini}
-              src={displayFaceImageUri ?? ''}
-              stage={visualStage}
-            />
-          ) : (
-            <div className="face-visual__head" />
-          )}
-        </div>
-        {!mini && options?.showGuide && hasFaceImage ? (
-          <div className="face-visual__guide">
-            <FaceAlignmentGuide compact />
+      <div className="face-page face-guide-page">
+        <button type="button" className="text-back-button" onClick={() => setStep('home')}>
+          <span aria-hidden="true">←</span>
+          돌아가기
+        </button>
+
+        <section className="guide-heading">
+          <span className="section-kicker">촬영 가이드</span>
+          <h1>얼굴이 잘 보이게<br />한 장만 찍어주세요</h1>
+          <p>라이브 영상은 사용하지 않아요. 기본 카메라로 촬영한 사진 한 장만 확인합니다.</p>
+        </section>
+
+        <section className="guide-visual-card" aria-label="얼굴 촬영 예시">
+          <div className="guide-viewfinder">
+            <img src={DEMO_FACE_IMAGE_URI} alt="" />
+            <span className="guide-viewfinder__oval" />
+            <span className="guide-viewfinder__eyes" />
           </div>
-        ) : null}
-        {!mini && options?.label ? <span className="face-visual__label">{options.label}</span> : null}
+          <div className="guide-quality-badge">
+            <span className="guide-quality-badge__check">✓</span>
+            이 정도면 좋아요
+          </div>
+        </section>
+
+        <section className="capture-tip-list" aria-label="촬영 팁">
+          <div className="capture-tip">
+            <span className="capture-tip__number">1</span>
+            <div>
+              <strong>밝은 곳에서 정면 보기</strong>
+              <p>눈썹부터 턱선까지 그림자 없이 보여주세요.</p>
+            </div>
+          </div>
+          <div className="capture-tip">
+            <span className="capture-tip__number">2</span>
+            <div>
+              <strong>안경과 모자는 잠시 벗기</strong>
+              <p>얼굴 윤곽과 눈매가 가려지지 않게 해주세요.</p>
+            </div>
+          </div>
+          <div className="capture-tip">
+            <span className="capture-tip__number">3</span>
+            <div>
+              <strong>표정은 편안하게</strong>
+              <p>입을 다물고 자연스러운 표정으로 촬영해 주세요.</p>
+            </div>
+          </div>
+        </section>
+
+        {cameraMessage ? <p className="inline-error" role="alert">{cameraMessage}</p> : null}
+
+        <div className="sticky-action-area">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void handleNativeCamera()}
+            disabled={isCameraPending}
+          >
+            <span className="button-camera-icon" aria-hidden="true" />
+            {isCameraPending ? '기본 카메라 여는 중...' : '기본 카메라로 촬영하기'}
+          </button>
+          <button
+            type="button"
+            className="subtle-button"
+            onClick={() => fallbackInputRef.current?.click()}
+          >
+            사진에서 선택
+          </button>
+        </div>
+
+        <input
+          ref={fallbackInputRef}
+          className="visually-hidden"
+          type="file"
+          accept="image/*"
+          capture="user"
+          onChange={handleFallbackImage}
+        />
       </div>
     )
   }
 
-  if (captureScenario) {
+  if (step === 'review') {
     return (
-      <div
-        className={
-          isLandscapeCapture || isThumbnailCapture
-            ? `submission-capture submission-capture--wide submission-capture--${capture}`
-            : `submission-capture submission-capture--portrait submission-capture--${capture}`
-        }
-      >
-        {(isOverviewCapture || isCameraCapture || isReminderCapture) && (
-          <>
-            <section className="submission-hero">
-              <div className="submission-hero__row">
-                <div>
-                  <p className="submission-hero__eyebrow">썸머핑</p>
-                  <h2 className="submission-hero__title">{captureScenario.headline}</h2>
-                  <p className="submission-hero__description">{captureScenario.description}</p>
-                </div>
-                <div className="submission-hero__badges">
-                  <span className="submission-chip submission-chip--strong">{nextAction}</span>
-                  <span className="submission-chip">
-                    {String(displayHour).padStart(2, '0')}:00 · UV {displayUv}
-                  </span>
-                </div>
-              </div>
-            </section>
+      <div className="face-page photo-review-page">
+        <button
+          type="button"
+          className="text-back-button"
+          onClick={() => {
+            setCapturedImageUri('')
+            setStep('guide')
+          }}
+        >
+          <span aria-hidden="true">←</span>
+          다시 선택
+        </button>
 
-            <section className="submission-surface">
-              <div className="submission-surface__header">
-                <div>
-                  <p className="content-panel__eyebrow">Core Experience</p>
-                  <h3 className="content-panel__title">실제 얼굴 변화</h3>
-                </div>
-                <span className="status-badge status-badge--strong">{stageCopy.badge}</span>
-              </div>
+        <section className="review-heading">
+          <span className="section-kicker">사진 확인</span>
+          <h1>이 사진으로<br />관상을 볼까요?</h1>
+          <p>얼굴 전체가 선명하게 보이는지 확인해 주세요.</p>
+        </section>
 
-              <div
-                className={
-                  isReminderCapture
-                    ? 'face-stage-card face-stage-card--capture face-stage-card--reminder'
-                    : 'face-stage-card face-stage-card--capture'
-                }
-              >
-                {renderFaceVisual(displayStage, {
-                  showGuide: isCameraCapture || isOverviewCapture,
-                  label: '내 얼굴 변화',
-                })}
+        <div className="review-photo">
+          <img src={capturedImageUri} alt="관상 분석에 사용할 얼굴 사진" />
+          <span className="review-photo__frame" aria-hidden="true" />
+          <span className="review-photo__privacy">사진은 저장하지 않아요</span>
+        </div>
 
-                <div className="face-stage-copy">
-                  <p className="content-panel__eyebrow">Skin Stage</p>
-                  <strong className="look-hero-card__title">{stageCopy.title}</strong>
-                  <p className="helper-text">{stageCopy.body}</p>
-                  <p className="helper-text helper-text--inverse">{displayCameraMessage}</p>
+        <div className="review-checks">
+          <span><i aria-hidden="true">✓</i> 정면 얼굴</span>
+          <span><i aria-hidden="true">✓</i> 밝은 조명</span>
+          <span><i aria-hidden="true">✓</i> 한 명만</span>
+        </div>
 
-                  <div className="damage-meter">
-                    <div className="damage-meter__track">
-                      <div className="damage-meter__fill" style={{ width: `${stageCopy.level}%` }} />
-                    </div>
-                    <div className="damage-meter__labels">
-                      <span>보호</span>
-                      <span>붉어짐</span>
-                      <span>탐</span>
-                    </div>
-                  </div>
-
-                  {isCameraCapture ? (
-                    <div className="capture-adjust-card">
-                      <div className="capture-adjust-card__header">
-                        <strong>얼굴 위치 맞추기</strong>
-                        <span>촬영 후 바로 정렬</span>
-                      </div>
-                      <div className="capture-adjust-bar">
-                        <span>얼굴 확대</span>
-                        <div className="capture-adjust-bar__track">
-                          <div className="capture-adjust-bar__fill capture-adjust-bar__fill--wide" />
-                        </div>
-                      </div>
-                      <div className="capture-adjust-bar">
-                        <span>얼굴 위아래 위치</span>
-                        <div className="capture-adjust-bar__track">
-                          <div className="capture-adjust-bar__fill capture-adjust-bar__fill--mid" />
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {!isReminderCapture && (
-                    <div className="face-preview-strip">
-                      {([
-                        ['fresh', '방금 바름'],
-                        ['fading', '효과 약해짐'],
-                        ['warning', '덧바를 시점'],
-                        ['burned', '탄 상태'],
-                      ] as const).map(([previewStage, label]) => (
-                        <div
-                          key={previewStage}
-                          className={displayStage === previewStage ? 'face-preview face-preview--active' : 'face-preview'}
-                        >
-                          {renderFaceVisual(previewStage, { mini: true, label })}
-                          <span>{label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {isOverviewCapture && (
-              <section className="submission-stat-grid">
-                <div className={uvToneClass}>
-                  <div className="uv-card__top">
-                    <span className="hero-summary-pill__label">자외선</span>
-                    <span className="uv-card__badge">{uvLevelCopy}</span>
-                  </div>
-                  <strong className="uv-card__value">Lv. {displayUv}</strong>
-                  <div className="uv-scale">
-                    <span
-                      className={
-                        displayUv <= 2 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--low' : 'uv-scale__chip uv-scale__chip--low'
-                      }
-                    >
-                      낮음
-                    </span>
-                    <span
-                      className={
-                        displayUv >= 3 && displayUv <= 5
-                          ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--medium'
-                          : 'uv-scale__chip uv-scale__chip--medium'
-                      }
-                    >
-                      보통
-                    </span>
-                    <span
-                      className={
-                        displayUv >= 6 && displayUv <= 7
-                          ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--high'
-                          : 'uv-scale__chip uv-scale__chip--high'
-                      }
-                    >
-                      높음
-                    </span>
-                    <span
-                      className={
-                        displayUv >= 8
-                          ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--very-high'
-                          : 'uv-scale__chip uv-scale__chip--very-high'
-                      }
-                    >
-                      매우 높음
-                    </span>
-                  </div>
-                  <span className="hero-summary-pill__hint">0~2 · 3~5 · 6~7 · 8+</span>
-                </div>
-                <div className="submission-stat-card">
-                  <span className="submission-stat-card__label">누적 노출 시간</span>
-                  <strong>{displayExposure}분</strong>
-                  <p>{displayTemperature}°C, 자외선 {displayUv} 단계에서는 얼굴 변화가 더 빨리 진행됩니다.</p>
-                </div>
-                <div className="submission-stat-card">
-                  <span className="submission-stat-card__label">마지막 도포 시점</span>
-                  <strong>{formattedLastAppliedAt}</strong>
-                  <p>다시 바른 시각을 기준으로 다음 알림과 얼굴 상태를 계산합니다.</p>
-                </div>
-              </section>
-            )}
-
-            {isReminderCapture && (
-              <section className="submission-reminder-grid">
-                <div className="submission-stat-card submission-stat-card--strong">
-                  <span className="submission-stat-card__label">마지막으로 선크림 바른 시점</span>
-                  <strong>{formattedLastAppliedAt}</strong>
-                  <p>앱을 종료해도 이 값은 유지되며, 다음 실행 시 그대로 불러옵니다.</p>
-                </div>
-                <div className="submission-stat-card">
-                  <span className="submission-stat-card__label">다음 액션</span>
-                  <strong>{nextAction}</strong>
-                  <p>알림 동의를 완료하면 예약 시각에 스마트 메시지로 다시 알려줄 수 있어요.</p>
-                </div>
-                <div className="submission-stat-card">
-                  <span className="submission-stat-card__label">알림 상태</span>
-                  <strong>동의 완료</strong>
-                  <p>기능성 메시지 발송을 위한 사용자 동의를 받은 상태를 보여줍니다.</p>
-                </div>
-              </section>
-            )}
-          </>
-        )}
-
-        {(isLandscapeCapture || isThumbnailCapture) && (
-          <>
-            <section className="submission-wide-hero">
-              <div className="submission-wide-hero__copy">
-                <p className="submission-hero__eyebrow">썸머핑</p>
-                <h2 className="submission-wide-hero__title">{captureScenario.headline}</h2>
-                <p className="submission-wide-hero__description">{captureScenario.description}</p>
-                <div className="submission-wide-hero__chips">
-                  <span className="submission-chip submission-chip--strong">{nextAction}</span>
-                  <span className="submission-chip">마지막 도포 {formattedLastAppliedAt}</span>
-                </div>
-                {!isThumbnailCapture && (
-                  <div className="submission-wide-hero__metrics">
-                    <div className="submission-mini-metric">
-                      <span>현재 자외선</span>
-                      <strong>Lv. {displayUv}</strong>
-                    </div>
-                    <div className="submission-mini-metric">
-                      <span>누적 노출</span>
-                      <strong>{displayExposure}분</strong>
-                    </div>
-                    <div className="submission-mini-metric">
-                      <span>다음 확인</span>
-                      <strong>{String(displayHour + 1).padStart(2, '0')}:00</strong>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="submission-wide-hero__visual">
-                <div className="submission-wide-face-card">
-                  {renderFaceVisual(displayStage, { showGuide: true, label: '내 얼굴 변화' })}
-                </div>
-              </div>
-            </section>
-
-            <section className="submission-wide-grid">
-              <div className="submission-surface submission-surface--compact">
-                <div className="submission-surface__header">
-                  <div>
-                    <p className="content-panel__eyebrow">UV Guide</p>
-                    <h3 className="content-panel__title">색으로 바로 이해하는 자외선 단계</h3>
-                  </div>
-                  <span className="status-badge">{uvLevelCopy}</span>
-                </div>
-                <div className={uvToneClass}>
-                  <div className="uv-card__top">
-                    <span className="hero-summary-pill__label">현재 단계</span>
-                    <span className="uv-card__badge">0~2 · 3~5 · 6~7 · 8+</span>
-                  </div>
-                  <strong className="uv-card__value">Lv. {displayUv}</strong>
-                  <div className="uv-scale">
-                    <span
-                      className={
-                        displayUv <= 2 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--low' : 'uv-scale__chip uv-scale__chip--low'
-                      }
-                    >
-                      낮음
-                    </span>
-                    <span
-                      className={
-                        displayUv >= 3 && displayUv <= 5
-                          ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--medium'
-                          : 'uv-scale__chip uv-scale__chip--medium'
-                      }
-                    >
-                      보통
-                    </span>
-                    <span
-                      className={
-                        displayUv >= 6 && displayUv <= 7
-                          ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--high'
-                          : 'uv-scale__chip uv-scale__chip--high'
-                      }
-                    >
-                      높음
-                    </span>
-                    <span
-                      className={
-                        displayUv >= 8
-                          ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--very-high'
-                          : 'uv-scale__chip uv-scale__chip--very-high'
-                      }
-                    >
-                      매우 높음
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="submission-surface submission-surface--compact">
-                <div className="submission-surface__header">
-                  <div>
-                    <p className="content-panel__eyebrow">Progression</p>
-                    <h3 className="content-panel__title">얼굴 변화가 단계별로 이어져요</h3>
-                  </div>
-                </div>
-                <div className="submission-preview-row">
-                  {([
-                    ['fresh', '방금 바름'],
-                    ['fading', '효과 약해짐'],
-                    ['warning', '덧바를 시점'],
-                    ['burned', '탄 상태'],
-                  ] as const).map(([previewStage, label]) => (
-                    <div
-                      key={previewStage}
-                      className={displayStage === previewStage ? 'face-preview face-preview--active' : 'face-preview'}
-                    >
-                      {renderFaceVisual(previewStage, { mini: true, label })}
-                      <span>{label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-          </>
-        )}
+        <div className="sticky-action-area">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void handleAnalyze()}
+            disabled={isAnalyzing}
+          >
+            {isAnalyzing ? (
+              <>
+                <span className="button-spinner" aria-hidden="true" />
+                얼굴의 기운을 읽는 중...
+              </>
+            ) : '이 사진으로 관상 보기'}
+          </button>
+          <button
+            type="button"
+            className="subtle-button"
+            onClick={() => void handleNativeCamera()}
+            disabled={isAnalyzing || isCameraPending}
+          >
+            다시 촬영하기
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className={isCaptureMode ? 'page-shell page-shell--capture' : 'page-shell'}>
-      {isCameraCaptureOpen && (
-        <div className="camera-capture-view" role="dialog" aria-modal="true" aria-label="얼굴 촬영">
-          <div className="camera-capture-view__instruction" aria-live="polite">
-            <span className="camera-capture-view__step">1</span>
-            <p>촬영한 사진에서 얼굴을 기준선에 맞춰주세요.</p>
-          </div>
-
-          <div className="camera-capture-view__body">
-            <div className="camera-capture-preview">
-              {cameraPreviewImageUri ? (
-                <img
-                  className="camera-capture-preview__image"
-                  src={cameraPreviewImageUri}
-                  style={cameraPreviewImageStyle}
-                  alt="얼굴 촬영 미리보기"
-                />
-              ) : null}
-              <span className="camera-capture-preview__grid" aria-hidden="true" />
-              <FaceAlignmentGuide camera />
-              {cameraCaptureMessage ? <div className="camera-capture-preview__status">{cameraCaptureMessage}</div> : null}
-              {cameraPreviewImageUri ? <div className="camera-capture-preview__captured-badge">촬영 완료</div> : null}
-            </div>
-
-            <div className="camera-capture-view__adjustments">
-              <label className="camera-capture-view__adjustment">
-                <span>얼굴 크기</span>
-                <input
-                  type="range"
-                  min="0.9"
-                  max="1.5"
-                  step="0.05"
-                  value={faceScale}
-                  onChange={(event) => setFaceScale(Number(event.target.value))}
-                />
-              </label>
-              <label className="camera-capture-view__adjustment">
-                <span>위아래 위치</span>
-                <input
-                  type="range"
-                  min="-72"
-                  max="72"
-                  step="2"
-                  value={faceOffsetY}
-                  onChange={(event) => setFaceOffsetY(Number(event.target.value))}
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="camera-capture-view__actions">
-            <button
-              type="button"
-              className="camera-capture-view__cancel"
-              aria-label="촬영 화면 닫기"
-              onClick={handleCloseCameraCapture}
-              disabled={isCameraCapturePending}
-            >
-              ×
-            </button>
-            <div className="camera-capture-view__confirm-actions">
-              <button
-                type="button"
-                className="camera-capture-view__secondary-action"
-                onClick={handleRetakeCameraPreview}
-                disabled={isCameraCapturePending}
-              >
-                다시 촬영
-              </button>
-              <button
-                type="button"
-                className="camera-capture-view__primary-action"
-                onClick={handleUseCameraPreview}
-                disabled={isCameraCapturePending}
-              >
-                이 사진 사용
-              </button>
-            </div>
-          </div>
+    <div className="face-page face-home-page">
+      <section className="home-hero">
+        <div className="home-hero__copy">
+          <span className="hero-label"><i aria-hidden="true" /> 오늘의 얼굴 기운</span>
+          <h1>사진 한 장으로 보는<br /><em>나의 관상</em></h1>
+          <p>이마부터 턱선까지, 얼굴에 담긴 성향과 오늘의 운을 재미있게 풀어드려요.</p>
         </div>
-      )}
 
-      <section className="hero-section">
-        <p className="eyebrow">썸머핑</p>
-        <h2 className="hero-title">얼굴 변화로 덧바를 타이밍을 확인해요</h2>
-        <p className="hero-description">
-          {userName ? `${userName}님, ` : ''}
-          촬영한 얼굴과 현재 자외선 환경을 함께 반영해, 지금 선케어가 필요한 순간을 직관적으로 보여드립니다.
+        <div className="home-hero__visual">
+          <span className="orbit orbit--one" aria-hidden="true" />
+          <span className="orbit orbit--two" aria-hidden="true" />
+          <span className="floating-glyph floating-glyph--left" aria-hidden="true">福</span>
+          <span className="floating-glyph floating-glyph--right" aria-hidden="true">運</span>
+          <FaceSymbol />
+        </div>
+
+        <button type="button" className="hero-primary-button" onClick={openGuide}>
+          관상 보러가기
+          <span aria-hidden="true">→</span>
+        </button>
+        <p className="privacy-caption">
+          <span className="privacy-lock" aria-hidden="true" />
+          촬영 사진은 서버에 전송하거나 저장하지 않아요
         </p>
-        {!userName && userNameStatus !== 'idle' && (
-          <p className="helper-text helper-text--tight">
-            이름 개인화를 연결하지 못했지만 모든 선케어 기능은 그대로 사용할 수 있어요.
-          </p>
-        )}
-
-        {!isCaptureMode && (
-          <>
-            {!lastAppliedAt ? (
-              <button type="button" className="primary-action primary-action--blue" onClick={handlePrimaryAction}>
-                지금 바른 시간 기록하기
-              </button>
-            ) : null}
-            <div className="hero-summary-row">
-              <div className="hero-summary-pill">
-                <span className="hero-summary-pill__label">현재 시간</span>
-                <strong>{String(hour).padStart(2, '0')}:00</strong>
-              </div>
-              <div className={uvToneClass}>
-                <div className="uv-card__top">
-                  <span className="hero-summary-pill__label">자외선</span>
-                  <span className="uv-card__badge">{uvLevelCopy}</span>
-                </div>
-                <strong className="uv-card__value">Lv. {uv}</strong>
-                <div className="uv-scale">
-                  <span className={uv <= 2 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--low' : 'uv-scale__chip uv-scale__chip--low'}>낮음</span>
-                  <span
-                    className={
-                      uv >= 3 && uv <= 5
-                        ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--medium'
-                        : 'uv-scale__chip uv-scale__chip--medium'
-                    }
-                  >
-                    보통
-                  </span>
-                  <span
-                    className={
-                      uv >= 6 && uv <= 7
-                        ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--high'
-                        : 'uv-scale__chip uv-scale__chip--high'
-                    }
-                  >
-                    높음
-                  </span>
-                  <span className={uv >= 8 ? 'uv-scale__chip uv-scale__chip--active uv-scale__chip--very-high' : 'uv-scale__chip uv-scale__chip--very-high'}>
-                    매우 높음
-                  </span>
-                </div>
-                <span className="hero-summary-pill__hint">0~2 · 3~5 · 6~7 · 8+</span>
-              </div>
-              <div className="hero-summary-pill">
-                <span className="hero-summary-pill__label">다음 행동</span>
-                <strong>{nextAction}</strong>
-              </div>
-            </div>
-          </>
-        )}
       </section>
 
-      {(isOverviewCapture || isThumbnailCapture || !isCaptureMode) && (
-        <section className="content-panel content-panel--hero-reco">
-          <div className="toolbar-row">
+      <section className="fortune-preview-section">
+        <div className="section-title-row">
+          <div>
+            <span className="section-kicker">FACE READING</span>
+            <h2>한 번에 알 수 있어요</h2>
+          </div>
+          <span className="mini-seal" aria-hidden="true">相</span>
+        </div>
+
+        <div className="fortune-preview-grid">
+          <article className="fortune-preview-card fortune-preview-card--wealth">
+            <span className="fortune-preview-card__icon">₩</span>
+            <strong>재물운</strong>
+            <p>돈을 모으는 힘과<br />기회가 오는 흐름</p>
+          </article>
+          <article className="fortune-preview-card fortune-preview-card--people">
+            <span className="fortune-preview-card__icon">人</span>
+            <strong>인연운</strong>
+            <p>관계의 온도와<br />사람을 끄는 매력</p>
+          </article>
+          <article className="fortune-preview-card fortune-preview-card--work">
+            <span className="fortune-preview-card__icon">成</span>
+            <strong>성취운</strong>
+            <p>목표를 이루는 방식과<br />일의 상승 기운</p>
+          </article>
+        </div>
+      </section>
+
+      {recentResult ? (
+        <section className="recent-result-card">
+          <div className="recent-result-card__top">
+            <span className="section-kicker">최근 관상</span>
+            <time>{new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(new Date(recentResult.createdAt))}</time>
+          </div>
+          <div className="recent-result-card__body">
+            <span className="recent-result-card__score">{recentResult.totalScore}</span>
             <div>
-              <p className="content-panel__eyebrow">Core Experience</p>
-              <h3 className="content-panel__title">얼굴 이미지 변화</h3>
-            </div>
-            <span className="status-badge status-badge--strong">{stageCopy.badge}</span>
-          </div>
-
-          <div className="face-stage-card">
-            {renderFaceVisual(displayStage, {
-              showGuide: hasPersonalFaceImage,
-              label: hasPersonalFaceImage ? '내 얼굴 변화' : '예시 얼굴 변화',
-              userName,
-            })}
-
-            <div className="face-stage-copy">
-              <p className="content-panel__eyebrow">Skin Stage</p>
-              <strong className="look-hero-card__title">{stageCopy.title}</strong>
-              <p className="helper-text">{stageCopy.body}</p>
-              {!isThumbnailCapture && <p className="helper-text helper-text--inverse">{cameraMessage}</p>}
-
-              {!isThumbnailCapture && (
-                <>
-                  <div className="damage-meter">
-                    <div className="damage-meter__track">
-                      <div className="damage-meter__fill" style={{ width: `${stageCopy.level}%` }} />
-                    </div>
-                    <div className="damage-meter__labels">
-                      <span>보호</span>
-                      <span>붉어짐</span>
-                      <span>탐</span>
-                    </div>
-                  </div>
-
-                  {capturedImageUri ? (
-                    <div className="face-adjust-panel face-adjust-panel--inline">
-                      <div className="face-adjust-panel__header">
-                        <strong>얼굴 위치 맞추기</strong>
-                        <span>변화 화면을 보면서 바로 조절</span>
-                      </div>
-
-                      <label className="adjust-field">
-                        <span className="field-label field-label--inverse">얼굴 확대</span>
-                        <input
-                          className="slider-input slider-input--light"
-                          type="range"
-                          min="0.9"
-                          max="1.5"
-                          step="0.05"
-                          value={faceScale}
-                          onChange={(event) => setFaceScale(Number(event.target.value))}
-                        />
-                      </label>
-
-                      <label className="adjust-field">
-                        <span className="field-label field-label--inverse">얼굴 위아래 위치</span>
-                        <input
-                          className="slider-input slider-input--light"
-                          type="range"
-                          min="-72"
-                          max="72"
-                          step="2"
-                          value={faceOffsetY}
-                          onChange={(event) => setFaceOffsetY(Number(event.target.value))}
-                        />
-                      </label>
-                    </div>
-                  ) : null}
-
-                  <div className="face-preview-strip">
-                    {([
-                      ['fresh', '방금 바름'],
-                      ['fading', '효과 약해짐'],
-                      ['warning', '덧바를 시점'],
-                      ['burned', '탄 상태'],
-                    ] as const).map(([previewStage, label]) => (
-                      <div
-                        key={previewStage}
-                        className={stage === previewStage ? 'face-preview face-preview--active' : 'face-preview'}
-                      >
-                        {renderFaceVisual(previewStage, { mini: true, label })}
-                        <span>{label}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button type="button" className="primary-action" onClick={handlePrimaryAction}>
-                    {stageCopy.button}
-                  </button>
-                </>
-              )}
+              <strong>{recentResult.title}</strong>
+              <p>{recentResult.keywords.slice(0, 3).map((keyword) => `#${keyword}`).join('  ')}</p>
             </div>
           </div>
+          <button type="button" onClick={() => navigate(`/result?id=${recentResult.id}`)}>
+            결과 다시 보기 <span aria-hidden="true">→</span>
+          </button>
         </section>
-      )}
+      ) : null}
 
-      {!isCaptureMode && (
-        <section className="content-panel content-panel--primary">
-          <div className="toolbar-row">
-            <div>
-              <p className="content-panel__eyebrow">Camera</p>
-              <h3 className="content-panel__title">내 얼굴 촬영하기</h3>
-            </div>
-            <span className="status-badge">{capturedImageUri ? '촬영 완료' : '촬영 필요'}</span>
-          </div>
+      <section className="how-it-works">
+        <span className="section-kicker">HOW IT WORKS</span>
+        <h2>복잡한 과정 없이<br />금방 확인해요</h2>
+        <ol>
+          <li>
+            <span>01</span>
+            <div><strong>기본 카메라로 촬영</strong><p>실시간 영상 없이 사진 한 장만 사용해요.</p></div>
+          </li>
+          <li>
+            <span>02</span>
+            <div><strong>얼굴의 인상 포인트 확인</strong><p>이마, 눈매, 코, 입매, 턱선을 살펴봐요.</p></div>
+          </li>
+          <li>
+            <span>03</span>
+            <div><strong>나만의 관상 카드 완성</strong><p>성향과 세 가지 운세를 한눈에 보여드려요.</p></div>
+          </li>
+        </ol>
+      </section>
 
-          <div className="camera-panel">
-            <div className="face-capture-guide-card">
-              <div className="face-capture-guide-card__preview">
-                <FaceAlignmentGuide />
-              </div>
-              <div>
-                <strong>촬영 후 얼굴 기준선</strong>
-                <p>기본 카메라로 찍은 사진 위에서 눈, 중앙, 턱 위치를 기준선에 맞춰 조정해요.</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              className="primary-action primary-action--blue"
-              onClick={handleOpenCamera}
-              disabled={isCameraCapturePending}
-            >
-              {isCameraCapturePending
-                ? '카메라 여는 중...'
-                : capturedImageUri
-                  ? '다시 촬영 후 맞추기'
-                  : '사진 촬영 후 맞추기'}
-            </button>
-            <p className="helper-text">
-              기본 카메라로 촬영한 뒤 가이드 화면에서 얼굴 크기와 위치를 직접 맞춥니다. 이후 선크림 상태에 따라 붉어짐과
-              피부변화가 이 얼굴 위에 덮입니다.
-            </p>
-            {!userName && (
-              <button
-                type="button"
-                className="secondary-inline-action"
-                onClick={() => void requestUserNameFromConsentedData()}
-                disabled={isUserNameRequestPending}
-              >
-                {isUserNameRequestPending ? '이름 연결 중...' : '선택: 내 이름으로 개인화하기'}
-              </button>
-            )}
-            {isUserNameRequestPending && (
-              <p className="helper-text helper-text--tight">
-                토스 동의 화면이나 응답을 기다리는 중이에요. 8초 이상 반응이 없으면 다시 눌러 주세요.
-              </p>
-            )}
-          </div>
-
-          <div className="form-stack">
-            <label>
-              <span className="field-label">마지막으로 선크림 바른 시점</span>
-              <input
-                className="select-field readonly-field"
-                value={formattedLastAppliedAt}
-                placeholder="아직 기록된 시점이 없어요"
-                readOnly
-              />
-            </label>
-
-            <label>
-              <span className="field-label">지금 외출 길이</span>
-              <select
-                className="select-field"
-                value={outdoorTime}
-                onChange={(event) => setOutdoorTime(event.target.value as OutdoorTime)}
-              >
-                <option value="short">30분 이내</option>
-                <option value="medium">1~2시간</option>
-                <option value="long">2시간 이상</option>
-              </select>
-            </label>
-
-            <label className="check-row">
-              <input type="checkbox" checked={hasHat} onChange={(event) => setHasHat(event.target.checked)} />
-              <span>모자나 양산으로 얼굴을 가리고 있어요</span>
-            </label>
-          </div>
-        </section>
-      )}
-
-      {!isCaptureMode && (
-        <section className="content-panel">
-          <div className="toolbar-row">
-            <div>
-              <p className="content-panel__eyebrow">Reminder</p>
-              <h3 className="content-panel__title">다음 선크림 타이밍</h3>
-            </div>
-            <span className="status-badge">{nextAction}</span>
-          </div>
-
-          <div className="summary-card">
-            <strong className="summary-card__value">{adjustedExposure}분</strong>
-            <p className="summary-card__text">
-              현재 누적 노출 시간입니다. {temperature}°C, 자외선 {uv} 단계에서는 일정 시간만 지나도 얼굴
-              변화가 빠르게 진행됩니다.
-            </p>
-          </div>
-          {lastAppliedAt ? (
-            <>
-              <p className="helper-text reminder-status-copy">{notificationMessage}</p>
-              {!hasNotificationAgreement ? (
-                <button
-                  type="button"
-                  className="primary-action primary-action--blue"
-                  onClick={() => void handleEnableReminder()}
-                  disabled={isReminderSetupPending}
-                >
-                  {isReminderSetupPending ? '알림 연결 중...' : '다음 덧바를 시간 알림 받기'}
-                </button>
-              ) : (
-                <Link className="text-link" to="/reapply?referrer=reminder_card">
-                  덧바름 기록 화면 미리보기
-                </Link>
-              )}
-            </>
-          ) : (
-            <p className="helper-text reminder-status-copy">먼저 선크림을 바른 시간을 기록하면 알림을 선택할 수 있어요.</p>
-          )}
-        </section>
-      )}
-
-      {!isCaptureMode && (
-        <nav className="quick-link-grid" aria-label="선케어 바로가기">
-          <Link to="/today">오늘 자외선</Link>
-          <Link to="/start">바른 시간 기록</Link>
-          <Link to="/history">내 기록</Link>
-        </nav>
-      )}
+      <aside className="entertainment-notice">
+        <span aria-hidden="true">i</span>
+        <p>관상 결과는 전통적인 관상 해석을 바탕으로 만든 재미용 콘텐츠예요. 중요한 판단의 근거로 사용하지 마세요.</p>
+      </aside>
     </div>
   )
 }

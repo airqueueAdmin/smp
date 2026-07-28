@@ -1,34 +1,37 @@
-import { Outlet, useLocation } from 'react-router-dom'
+import { useLayoutEffect } from 'react'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 
 export function AppLayout() {
   const location = useLocation()
-  const capture = new URLSearchParams(location.search).get('capture')
-  const isCaptureMode = capture !== null
-  const isWideCapture = capture === 'landscape' || capture === 'thumbnail'
   const isHome = location.pathname === '/'
+  const isSubmissionCapture = new URLSearchParams(location.search).has('capture')
+
+  useLayoutEffect(() => {
+    if (isSubmissionCapture) {
+      window.scrollTo(0, 0)
+    }
+  }, [isSubmissionCapture, location.pathname, location.search])
 
   return (
-    <div className={isCaptureMode ? 'app-shell app-shell--capture' : 'app-shell'}>
-      <div
-        className={
-          isCaptureMode
-            ? isWideCapture
-              ? 'app-frame app-frame--capture app-frame--wide'
-              : 'app-frame app-frame--capture'
-            : 'app-frame'
-        }
-      >
-        {!isCaptureMode && isHome && (
-          <header className="app-header">
-            <p className="app-header__eyebrow">썸머핑 · 퍼스널 선케어</p>
-            <h1 className="app-header__title">외출 중에도 선케어 타이밍을 놓치지 마세요</h1>
-            <p className="app-header__description">
-              얼굴 변화와 자외선 강도를 바탕으로 덧바를 시점을 안내하는 선케어 서비스입니다.
-            </p>
-          </header>
-        )}
+    <div className={isSubmissionCapture ? 'app-shell app-shell--submission' : 'app-shell'}>
+      <div className={isSubmissionCapture ? 'app-frame app-frame--submission' : 'app-frame'}>
+        <header className="top-navigation">
+          <Link className="brand-link" to="/" aria-label="관상록 홈">
+            <span className="brand-seal" aria-hidden="true">相</span>
+            <span>
+              <strong>관상록</strong>
+              <small>오늘의 얼굴 기운</small>
+            </span>
+          </Link>
 
-        <main className={isCaptureMode ? 'app-content app-content--capture' : 'app-content'}>
+          {isHome ? (
+            <Link className="history-link" to="/history">나의 기록</Link>
+          ) : (
+            <Link className="history-link" to="/">홈으로</Link>
+          )}
+        </header>
+
+        <main className="app-content">
           <Outlet />
         </main>
       </div>

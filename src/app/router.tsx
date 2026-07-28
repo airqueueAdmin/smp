@@ -1,8 +1,9 @@
 import { createBrowserRouter } from 'react-router-dom'
 
 import { AppLayout } from './AppLayout'
+import { FaceReadingHistoryPage } from '../features/face-reading/FaceReadingHistoryPage'
+import { FaceReadingResultPage } from '../features/face-reading/FaceReadingResultPage'
 import { HomePage } from '../features/home/HomePage'
-import { SuncareActionPage } from '../features/suncare/SuncareActionPage'
 
 export const appRouter = createBrowserRouter([
   {
@@ -10,10 +11,8 @@ export const appRouter = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: 'start', element: <SuncareActionPage mode="start" /> },
-      { path: 'reapply', element: <SuncareActionPage mode="reapply" /> },
-      { path: 'today', element: <SuncareActionPage mode="today" /> },
-      { path: 'history', element: <SuncareActionPage mode="history" /> },
+      { path: 'result', element: <FaceReadingResultPage /> },
+      { path: 'history', element: <FaceReadingHistoryPage /> },
     ],
   },
 ])
