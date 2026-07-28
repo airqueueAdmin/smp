@@ -16,10 +16,10 @@ export function AppLayout() {
     <div className={isSubmissionCapture ? 'app-shell app-shell--submission' : 'app-shell'}>
       <div className={isSubmissionCapture ? 'app-frame app-frame--submission' : 'app-frame'}>
         <header className="top-navigation">
-          <Link className="brand-link" to="/" aria-label="관상록 홈">
+          <Link className="brand-link" to="/" aria-label="진짜 내 관상 홈">
             <span className="brand-seal" aria-hidden="true">相</span>
             <span>
-              <strong>관상록</strong>
+              <strong>진짜 내 관상</strong>
               <small>오늘의 얼굴 기운</small>
             </span>
           </Link>

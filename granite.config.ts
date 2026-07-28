@@ -3,7 +3,7 @@ import { defineConfig } from '@apps-in-toss/web-framework/config'
 export default defineConfig({
   appName: 'summer-ping',
   brand: {
-    displayName: '관상록',
+    displayName: '진짜 내 관상',
     primaryColor: '#6f3a3f',
     icon: 'https://static.toss.im/appsintoss/55493/71db40ed-66b3-4fba-ab49-81c33fa423e0.png',
   },
