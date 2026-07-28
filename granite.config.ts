@@ -20,6 +20,9 @@ export default defineConfig({
     pullToRefreshEnabled: false,
     overScrollMode: 'never',
   },
-  permissions: [{ name: 'camera', access: 'access' }],
+  permissions: [
+    { name: 'camera', access: 'access' },
+    { name: 'photos', access: 'read' },
+  ],
   outdir: 'dist',
 })

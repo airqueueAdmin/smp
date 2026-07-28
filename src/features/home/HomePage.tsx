@@ -1,5 +1,7 @@
 import {
+  FetchAlbumPhotosPermissionError,
   OpenCameraPermissionError,
+  fetchAlbumPhotos,
   openCamera,
 } from '@apps-in-toss/web-framework'
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
@@ -89,6 +91,7 @@ export function HomePage() {
   )
   const [capturedImageUri, setCapturedImageUri] = useState('')
   const [isCameraPending, setIsCameraPending] = useState(false)
+  const [isAlbumPending, setIsAlbumPending] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [cameraMessage, setCameraMessage] = useState('')
   const [recentResult] = useState(() => getFaceReadingHistory()[0] ?? null)
@@ -107,7 +110,7 @@ export function HomePage() {
   }
 
   async function handleNativeCamera() {
-    if (isCameraPending) {
+    if (isCameraPending || isAlbumPending) {
       return
     }
 
@@ -150,6 +153,62 @@ export function HomePage() {
       }
     } finally {
       setIsCameraPending(false)
+    }
+  }
+
+  async function handleAlbumPhoto() {
+    if (isAlbumPending || isCameraPending) {
+      return
+    }
+
+    if (!('ReactNativeWebView' in window)) {
+      fallbackInputRef.current?.click()
+      return
+    }
+
+    setIsAlbumPending(true)
+    setCameraMessage('')
+
+    try {
+      const permission = await fetchAlbumPhotos.getPermission()
+
+      if (permission !== 'allowed') {
+        const requestedPermission = await fetchAlbumPhotos.openPermissionDialog()
+        if (requestedPermission !== 'allowed') {
+          setCameraMessage('앨범 권한을 허용한 뒤 다시 사진을 선택해 주세요.')
+          trackEvent('face_album_permission_declined')
+          return
+        }
+      }
+
+      const [photo] = await fetchAlbumPhotos({
+        base64: true,
+        maxCount: 1,
+        maxWidth: 1080,
+      })
+
+      if (!photo?.dataUri) {
+        return
+      }
+
+      const imageUri = photo.dataUri.startsWith('data:')
+        ? photo.dataUri
+        : `data:image/jpeg;base64,${photo.dataUri}`
+
+      setCapturedImageUri(imageUri)
+      setStep('review')
+      trackEvent('face_image_selected', { source: 'native_album' })
+      window.scrollTo({ top: 0 })
+    } catch (error) {
+      if (error instanceof FetchAlbumPhotosPermissionError) {
+        setCameraMessage('앨범 권한이 꺼져 있어요. 토스 설정에서 권한을 허용해 주세요.')
+        trackEvent('face_album_permission_declined')
+      } else {
+        console.error('앨범에서 사진을 불러오는 데 실패했어요:', error)
+        setCameraMessage('사진을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.')
+      }
+    } finally {
+      setIsAlbumPending(false)
     }
   }
 
@@ -253,7 +312,7 @@ export function HomePage() {
             type="button"
             className="primary-button"
             onClick={() => void handleNativeCamera()}
-            disabled={isCameraPending}
+            disabled={isCameraPending || isAlbumPending}
           >
             <span className="button-camera-icon" aria-hidden="true" />
             {isCameraPending ? '기본 카메라 여는 중...' : '기본 카메라로 촬영하기'}
@@ -261,9 +320,10 @@ export function HomePage() {
           <button
             type="button"
             className="subtle-button"
-            onClick={() => fallbackInputRef.current?.click()}
+            onClick={() => void handleAlbumPhoto()}
+            disabled={isCameraPending || isAlbumPending}
           >
-            사진에서 선택
+            {isAlbumPending ? '앨범 여는 중...' : '사진에서 선택'}
           </button>
         </div>
 
@@ -272,7 +332,6 @@ export function HomePage() {
           className="visually-hidden"
           type="file"
           accept="image/*"
-          capture="user"
           onChange={handleFallbackImage}
         />
       </div>
