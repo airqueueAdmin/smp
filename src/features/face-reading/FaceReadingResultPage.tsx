@@ -75,7 +75,7 @@ export function FaceReadingResultPage() {
       trackEvent('face_reading_share_start', { reading_type: record.title })
       const link = await getTossShareLink(`intoss://${APP_NAME}/?referrer=share`)
       await share({
-        message: `내 관상 팩폭은 ‘${record.title}’, 얼굴 기운은 ${record.totalScore}점이래요. 좋은 말만 안 해주는 관상, 직접 확인해 보세요. ${link}`,
+        message: `내 관상은 ‘${record.title}’, 얼굴 기운은 ${record.totalScore}점이래. 돌려 말하지 않는 내 결과도 확인해 봐. ${link}`,
       })
       setShareMessage('공유 화면을 열었어요.')
       trackEvent('face_reading_share_complete', { reading_type: record.title })
@@ -130,61 +130,21 @@ export function FaceReadingResultPage() {
         <div className="result-keywords">
           {record.keywords.map((keyword) => <span key={keyword}>#{keyword}</span>)}
         </div>
-        <p className="result-hero__summary">{record.summary}</p>
       </section>
 
       <section className="result-section blunt-report-section">
-        <span className="section-kicker">팩폭 리포트</span>
-        <h2>좋은 말만 하지는 않을게요</h2>
+        <span className="section-kicker">성향 분석</span>
+        <h2>돌려 말하지 않을게</h2>
 
         <div className="fact-bomb-lead">
-          <span>한 줄 팩폭</span>
+          <span>딱 한마디</span>
           <strong>“{record.punchline}”</strong>
-        </div>
-
-        <div className="personality-depth-list">
-          <article>
-            <span>처음 보이는 모습</span>
-            <strong>겉으로는 이렇게 보여요</strong>
-            <p>{record.outerImpression}</p>
-          </article>
-          <article>
-            <span>진짜 동력</span>
-            <strong>속으로는 이걸 원해요</strong>
-            <p>{record.innerDrive}</p>
-          </article>
-          <article className="personality-depth-list__warning">
-            <span>꼬이는 순간</span>
-            <strong>스트레스 받으면 이렇게 돼요</strong>
-            <p>{record.stressPattern}</p>
-          </article>
-        </div>
-
-        <div className="strength-blind-grid">
-          <article className="strength-blind-card strength-blind-card--strength">
-            <div className="strength-blind-card__heading">
-              <span aria-hidden="true">+</span>
-              <strong>확실히 잘하는 것</strong>
-            </div>
-            <ul>
-              {record.strengths.map((strength) => <li key={strength}>{strength}</li>)}
-            </ul>
-          </article>
-          <article className="strength-blind-card strength-blind-card--blind">
-            <div className="strength-blind-card__heading">
-              <span aria-hidden="true">!</span>
-              <strong>좀 찔리는 구석</strong>
-            </div>
-            <ul>
-              {record.blindSpots.map((blindSpot) => <li key={blindSpot}>{blindSpot}</li>)}
-            </ul>
-          </article>
         </div>
       </section>
 
       <section className="result-section fortune-score-section">
         <span className="section-kicker">세 가지 기운</span>
-        <h2>점수보다 중요한 현실 조언</h2>
+        <h2>점수와 현실 조언</h2>
         <div className="fortune-score-list">
           {record.categories.map((category) => (
             <article key={category.key} className={`fortune-score fortune-score--${category.key}`}>
@@ -194,12 +154,11 @@ export function FaceReadingResultPage() {
                 </span>
                 <div>
                   <strong>{category.label}</strong>
-                  <p>{category.summary}</p>
                 </div>
                 <em>{category.score}</em>
               </div>
               <div className="fortune-score__fact-bomb">
-                <span>팩폭</span>
+                <span>진단</span>
                 <p>{category.factBomb}</p>
               </div>
               <div className="fortune-score__action">
@@ -214,34 +173,10 @@ export function FaceReadingResultPage() {
         </div>
       </section>
 
-      <section className="result-section face-point-section">
-        <span className="section-kicker">얼굴 풀이</span>
-        <h2>이렇게 읽었어요</h2>
-        <div className="face-point-list">
-          {record.facePoints.map((point, index) => (
-            <article key={point.part} className="face-point-item">
-              <div className="face-point-item__marker">
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                <i aria-hidden="true" />
-              </div>
-              <div>
-                <span className="face-point-item__part">{point.part}</span>
-                <strong>{point.headline}</strong>
-                <p>{point.description}</p>
-                <blockquote>
-                  <span>팩폭</span>
-                  {point.factBomb}
-                </blockquote>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="lucky-tip-card">
         <div className="lucky-tip-card__title">
-          <span aria-hidden="true">福</span>
-          <div><small>오늘의 현실 처방</small><strong>운보다 먼저 바꿀 한 가지</strong></div>
+          <span aria-hidden="true">行</span>
+          <div><small>오늘 할 일</small><strong>운 탓하기 전에 이것부터</strong></div>
         </div>
         <p className="lucky-tip-card__prescription">{record.resetAction}</p>
         <dl>
