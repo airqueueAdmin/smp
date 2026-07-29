@@ -2,6 +2,11 @@ import { getTossShareLink, share } from '@apps-in-toss/web-framework'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
+import {
+  AD_GROUP_IDS,
+  TossBannerAd,
+  useFullScreenAd,
+} from '../../lib/ads'
 import { trackEvent, trackScreen } from '../../lib/analytics'
 import { DEMO_FACE_IMAGE_URI } from '../home/HomePage'
 import {
@@ -12,10 +17,25 @@ import {
 } from './storage'
 
 const APP_NAME = import.meta.env.VITE_APPS_IN_TOSS_APP_NAME ?? 'summer-ping'
+const DETAIL_UNLOCKS_KEY = 'gwansang-log:rewarded-detail-unlocks'
 
 type ResultLocationState = {
   imageUri?: string
   record?: FaceReadingRecord
+}
+
+function getDetailUnlocks() {
+  try {
+    const value: unknown = JSON.parse(
+      window.localStorage.getItem(DETAIL_UNLOCKS_KEY) ?? '[]',
+    )
+
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
 }
 
 function formatReadingDate(value: string) {
@@ -41,6 +61,8 @@ export function FaceReadingResultPage() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const [shareMessage, setShareMessage] = useState('')
+  const [rewardMessage, setRewardMessage] = useState('')
+  const [detailUnlocks, setDetailUnlocks] = useState(getDetailUnlocks)
   const state = (location.state ?? {}) as ResultLocationState
   const isDemoPreview = searchParams.get('preview') === 'demo'
   const resultImageUri = state.imageUri ?? (isDemoPreview ? DEMO_FACE_IMAGE_URI : '')
@@ -58,6 +80,13 @@ export function FaceReadingResultPage() {
       ? createFaceReading('gwansang-log-result-preview')
       : getFaceReadingHistory()[0] ?? null
   }, [isDemoPreview, searchParams, state.record])
+  const isDetailUnlocked = Boolean(
+    isDemoPreview || (record && detailUnlocks.includes(record.id)),
+  )
+  const rewardedAd = useFullScreenAd(
+    AD_GROUP_IDS.rewarded,
+    Boolean(record) && !isDetailUnlocked,
+  )
 
   useEffect(() => {
     trackScreen('face_reading_result_screen', {
@@ -85,6 +114,60 @@ export function FaceReadingResultPage() {
       trackEvent('face_reading_share_failed')
     }
   }
+
+  async function handleRewardedDetail() {
+    if (!record) {
+      return
+    }
+
+    if (rewardedAd.status === 'error' || rewardedAd.status === 'idle') {
+      setRewardMessage('광고를 다시 준비하고 있어요.')
+      rewardedAd.load()
+      return
+    }
+
+    if (rewardedAd.status !== 'ready') {
+      return
+    }
+
+    setRewardMessage('')
+    trackEvent('face_detail_rewarded_ad_start', {
+      reading_type: record.title,
+    })
+
+    const adResult = await rewardedAd.show()
+    trackEvent('face_detail_rewarded_ad_complete', {
+      ad_result: adResult,
+      reading_type: record.title,
+    })
+
+    if (adResult === 'rewarded') {
+      const nextUnlocks = Array.from(new Set([...detailUnlocks, record.id]))
+      window.localStorage.setItem(
+        DETAIL_UNLOCKS_KEY,
+        JSON.stringify(nextUnlocks),
+      )
+      setDetailUnlocks(nextUnlocks)
+      setRewardMessage('얼굴 5부위 상세 풀이를 열었어요.')
+      return
+    }
+
+    setRewardMessage(
+      adResult === 'dismissed'
+        ? '광고 시청을 완료하면 상세 풀이가 열려요.'
+        : '광고를 표시하지 못했어요. 잠시 후 다시 시도해 주세요.',
+    )
+    rewardedAd.load()
+  }
+
+  const rewardedButtonLabel = {
+    idle: '광고 다시 준비하기',
+    loading: '광고 준비 중...',
+    ready: '광고 보고 상세 풀이 열기',
+    showing: '광고 보는 중...',
+    unsupported: '토스 앱에서 상세 풀이 열기',
+    error: '광고 다시 불러오기',
+  }[rewardedAd.status]
 
   if (!record) {
     return (
@@ -172,6 +255,60 @@ export function FaceReadingResultPage() {
           ))}
         </div>
       </section>
+
+      {isDetailUnlocked ? (
+        <section className="result-section face-point-section">
+          <span className="section-kicker">얼굴 5부위 상세 풀이</span>
+          <h2>인상을 만드는 포인트</h2>
+          <div className="face-point-list">
+            {record.facePoints.map((point, index) => (
+              <article key={point.part} className="face-point-item">
+                <div className="face-point-item__marker" aria-hidden="true">
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <i />
+                </div>
+                <div>
+                  <span className="face-point-item__part">{point.part}</span>
+                  <strong>{point.headline}</strong>
+                  <p>{point.description}</p>
+                  <blockquote>
+                    <span>한마디</span>
+                    {point.factBomb}
+                  </blockquote>
+                </div>
+              </article>
+            ))}
+          </div>
+          {rewardMessage ? <p className="reward-status" role="status">{rewardMessage}</p> : null}
+        </section>
+      ) : (
+        <section className="result-section rewarded-detail-section">
+          <span className="section-kicker">얼굴 5부위 상세 풀이</span>
+          <h2>이마부터 턱선까지 더 볼까요?</h2>
+          <div className="rewarded-detail-card">
+            <span className="rewarded-detail-card__symbol" aria-hidden="true">解</span>
+            <div>
+              <strong>내 인상을 만드는 5가지 포인트</strong>
+              <p>짧은 광고 시청을 완료하면 이마·눈매·코·입매·턱선 풀이를 모두 열어드려요.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="primary-button rewarded-detail-button"
+            onClick={() => void handleRewardedDetail()}
+            disabled={
+              rewardedAd.status === 'loading' ||
+              rewardedAd.status === 'showing' ||
+              rewardedAd.status === 'unsupported'
+            }
+          >
+            {rewardedButtonLabel}
+          </button>
+          {rewardMessage ? <p className="reward-status" role="status">{rewardMessage}</p> : null}
+        </section>
+      )}
+
+      <TossBannerAd />
 
       <section className="lucky-tip-card">
         <div className="lucky-tip-card__title">

@@ -7,6 +7,7 @@ import {
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { AD_GROUP_IDS, useFullScreenAd } from '../../lib/ads'
 import { trackEvent, trackScreen } from '../../lib/analytics'
 import {
   createFaceReading,
@@ -95,6 +96,10 @@ export function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [cameraMessage, setCameraMessage] = useState('')
   const [recentResult] = useState(() => getFaceReadingHistory()[0] ?? null)
+  const interstitialAd = useFullScreenAd(
+    AD_GROUP_IDS.interstitial,
+    step === 'review' && Boolean(capturedImageUri),
+  )
 
   useEffect(() => {
     trackScreen('face_reading_home_screen', {
@@ -247,6 +252,11 @@ export function HomePage() {
     saveFaceReading(result)
 
     await new Promise((resolve) => window.setTimeout(resolve, 1200))
+    const adResult = await interstitialAd.show()
+    trackEvent('face_result_interstitial_complete', {
+      ad_result: adResult,
+    })
+
     navigate('/result', {
       state: {
         imageUri: capturedImageUri,
