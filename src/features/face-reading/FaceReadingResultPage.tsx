@@ -217,7 +217,7 @@ export function FaceReadingResultPage() {
 
       <section className="result-section blunt-report-section">
         <span className="section-kicker">성향 분석</span>
-        <h2>돌려 말하지 않을게</h2>
+        <h2>{record.subtitle}</h2>
 
         <div className="fact-bomb-lead">
           <span>딱 한마디</span>
@@ -331,7 +331,7 @@ export function FaceReadingResultPage() {
       </div>
 
       <p className="result-disclaimer">
-        이 결과는 전통 관상 해석을 바탕으로 만든 오락용 콘텐츠이며 과학적·의학적 판단을 제공하지 않아요.
+        이 결과는 과학적·의학적 판단을 제공하지 않습니다.
       </p>
     </div>
   )
