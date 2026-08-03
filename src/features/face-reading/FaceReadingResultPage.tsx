@@ -180,6 +180,10 @@ export function FaceReadingResultPage() {
     )
   }
 
+  const rankedFortunes = [...record.categories].sort((a, b) => b.score - a.score)
+  const strongestFortune = rankedFortunes[0]
+  const fortuneToWatch = rankedFortunes[rankedFortunes.length - 1]
+
   return (
     <div className="face-page result-page">
       <section className="result-hero">
@@ -216,18 +220,75 @@ export function FaceReadingResultPage() {
       </section>
 
       <section className="result-section blunt-report-section">
-        <span className="section-kicker">성향 분석</span>
-        <h2>{record.subtitle}</h2>
+        <span className="section-kicker">관상가의 첫 판단</span>
+        <h2>이 얼굴, 이렇게 읽힙니다</h2>
 
         <div className="fact-bomb-lead">
-          <span>딱 한마디</span>
+          <span>결론부터</span>
           <strong>“{record.punchline}”</strong>
+        </div>
+
+        <p className="reading-summary">{record.summary}</p>
+
+        <div className="personality-depth-list">
+          <article>
+            <span>남이 보는 나</span>
+            <strong>첫인상은 이렇습니다</strong>
+            <p>{record.outerImpression}</p>
+          </article>
+          <article>
+            <span>진짜 속마음</span>
+            <strong>나를 움직이는 힘</strong>
+            <p>{record.innerDrive}</p>
+          </article>
+          <article className="personality-depth-list__warning">
+            <span>주의 신호</span>
+            <strong>힘들 때 나오는 모습</strong>
+            <p>{record.stressPattern}</p>
+          </article>
+        </div>
+
+        <div className="strength-blind-grid">
+          <article className="strength-blind-card strength-blind-card--strength">
+            <div className="strength-blind-card__heading">
+              <span aria-hidden="true">＋</span>
+              <strong>확실한 강점</strong>
+            </div>
+            <ul>
+              {record.strengths.slice(0, 2).map((strength) => <li key={strength}>{strength}</li>)}
+            </ul>
+          </article>
+          <article className="strength-blind-card strength-blind-card--blind">
+            <div className="strength-blind-card__heading">
+              <span aria-hidden="true">!</span>
+              <strong>놓치기 쉬운 점</strong>
+            </div>
+            <ul>
+              {record.blindSpots.slice(0, 2).map((blindSpot) => <li key={blindSpot}>{blindSpot}</li>)}
+            </ul>
+          </article>
         </div>
       </section>
 
       <section className="result-section fortune-score-section">
-        <span className="section-kicker">세 가지 기운</span>
-        <h2>점수와 현실 조언</h2>
+        <span className="section-kicker">지금 들어온 운</span>
+        <h2>좋은 운과 조심할 운</h2>
+
+        <div className="fortune-at-a-glance">
+          <article className="fortune-spotlight">
+            <span className="fortune-spotlight__label">가장 좋은 운</span>
+            <div>
+              <strong>{strongestFortune.label}</strong>
+              <em>{strongestFortune.score}<small>점</small></em>
+            </div>
+            <p>{strongestFortune.summary}</p>
+          </article>
+          <p className="fortune-watch">
+            <span aria-hidden="true">!</span>
+            <strong>{fortuneToWatch.label}</strong>은 서두르지 말고 기본부터 챙기세요.
+          </p>
+        </div>
+
         <div className="fortune-score-list">
           {record.categories.map((category) => (
             <article key={category.key} className={`fortune-score fortune-score--${category.key}`}>
@@ -237,16 +298,17 @@ export function FaceReadingResultPage() {
                 </span>
                 <div>
                   <strong>{category.label}</strong>
+                  <p>{category.summary}</p>
                 </div>
-                <em>{category.score}</em>
+                <em>{category.score}<small>점</small></em>
               </div>
               <div className="fortune-score__fact-bomb">
-                <span>진단</span>
+                <span>풀이</span>
                 <p>{category.factBomb}</p>
               </div>
               <div className="fortune-score__action">
                 <span aria-hidden="true">→</span>
-                <p>{category.action}</p>
+                <p><strong>오늘의 한 수</strong> {category.action}</p>
               </div>
               <div className="fortune-score__track" aria-label={`${category.label} ${category.score}점`}>
                 <span style={{ width: `${category.score}%` }} />
@@ -313,7 +375,7 @@ export function FaceReadingResultPage() {
       <section className="lucky-tip-card">
         <div className="lucky-tip-card__title">
           <span aria-hidden="true">行</span>
-          <div><small>오늘 할 일</small><strong>운 탓하기 전에 이것부터</strong></div>
+          <div><small>관상가의 처방</small><strong>오늘은 이것 하나만</strong></div>
         </div>
         <p className="lucky-tip-card__prescription">{record.resetAction}</p>
         <dl>

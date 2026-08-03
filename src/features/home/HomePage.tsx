@@ -412,9 +412,9 @@ export function HomePage() {
     <div className="face-page face-home-page">
       <section className="home-hero">
         <div className="home-hero__copy">
-          <span className="hero-label"><i aria-hidden="true" /> 오늘의 얼굴 기운</span>
-          <h1>사진 한 장으로 보는<br /><em>나의 관상</em></h1>
-          <p>이마부터 턱선까지, 얼굴에 담긴 성향과 오늘의 운을 재미있게 풀어드려요.</p>
+          <span className="hero-label"><i aria-hidden="true" /> 돌려 말하지 않는 얼굴 풀이</span>
+          <h1>좋은 말만 하지 않는<br /><em>진짜 내 관상</em></h1>
+          <p>남이 보는 나, 숨겨둔 속마음, 지금 들어온 운까지 핵심만 짚어드려요.</p>
         </div>
 
         <div className="home-hero__visual">
@@ -426,7 +426,7 @@ export function HomePage() {
         </div>
 
         <button type="button" className="hero-primary-button" onClick={openGuide}>
-          관상 보러가기
+          내 얼굴, 솔직하게 보기
           <span aria-hidden="true">→</span>
         </button>
         <p className="privacy-caption">
@@ -438,27 +438,32 @@ export function HomePage() {
       <section className="fortune-preview-section">
         <div className="section-title-row">
           <div>
-            <span className="section-kicker">FACE READING</span>
-            <h2>한 번에 알 수 있어요</h2>
+            <span className="section-kicker">한눈에 보는 관상</span>
+            <h2>이 네 가지만 보면 돼요</h2>
           </div>
           <span className="mini-seal" aria-hidden="true">相</span>
         </div>
 
-        <div className="fortune-preview-grid">
+        <div className="fortune-preview-grid fortune-preview-grid--four">
           <article className="fortune-preview-card fortune-preview-card--wealth">
-            <span className="fortune-preview-card__icon">₩</span>
-            <strong>재물운</strong>
-            <p>돈을 모으는 힘과<br />기회가 오는 흐름</p>
+            <span className="fortune-preview-card__icon">人</span>
+            <strong>첫인상</strong>
+            <p>남들이<br />보는 내 모습</p>
           </article>
           <article className="fortune-preview-card fortune-preview-card--people">
-            <span className="fortune-preview-card__icon">人</span>
-            <strong>인연운</strong>
-            <p>관계의 온도와<br />사람을 끄는 매력</p>
+            <span className="fortune-preview-card__icon">心</span>
+            <strong>속마음</strong>
+            <p>나를 움직이는<br />진짜 본심</p>
           </article>
           <article className="fortune-preview-card fortune-preview-card--work">
-            <span className="fortune-preview-card__icon">成</span>
-            <strong>성취운</strong>
-            <p>목표를 이루는 방식과<br />일의 상승 기운</p>
+            <span className="fortune-preview-card__icon">運</span>
+            <strong>운의 흐름</strong>
+            <p>재물·인연·성취<br />강약 비교</p>
+          </article>
+          <article className="fortune-preview-card fortune-preview-card--advice">
+            <span className="fortune-preview-card__icon">行</span>
+            <strong>오늘의 한 수</strong>
+            <p>바로 실천할<br />현실 조언</p>
           </article>
         </div>
       </section>
