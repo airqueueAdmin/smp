@@ -104,7 +104,7 @@ export function FaceReadingResultPage() {
       trackEvent('face_reading_share_start', { reading_type: record.title })
       const link = await getTossShareLink(`intoss://${APP_NAME}/?referrer=share`)
       await share({
-        message: `내 관상은 ‘${record.title}’, 얼굴 기운은 ${record.totalScore}점이래. 돌려 말하지 않는 내 결과도 확인해 봐. ${link}`,
+        message: `제 관상은 ‘${record.title}’, 얼굴 기운은 ${record.totalScore}점이래요. 돌려 말하지 않는 관상 결과도 확인해 보세요. ${link}`,
       })
       setShareMessage('공유 화면을 열었어요.')
       trackEvent('face_reading_share_complete', { reading_type: record.title })
@@ -221,7 +221,7 @@ export function FaceReadingResultPage() {
 
       <section className="result-section blunt-report-section">
         <span className="section-kicker">관상가의 첫 판단</span>
-        <h2>이 얼굴, 이렇게 읽힙니다</h2>
+        <h2>이 얼굴, 이렇게 읽혀요</h2>
 
         <div className="fact-bomb-lead">
           <span>결론부터</span>
@@ -230,10 +230,28 @@ export function FaceReadingResultPage() {
 
         <p className="reading-summary">{record.summary}</p>
 
+        <div className="reading-evidence">
+          <div className="reading-evidence__heading">
+            <span aria-hidden="true">相</span>
+            <div>
+              <strong>이 얼굴에서 읽은 근거예요</strong>
+              <p>다섯 부위의 인상을 함께 보고 전체 성향을 풀었어요.</p>
+            </div>
+          </div>
+          <ul>
+            {record.facePoints.map((point) => (
+              <li key={point.part}>
+                <span>{point.part}</span>
+                <strong>{point.headline}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+
         <div className="personality-depth-list">
           <article>
             <span>남이 보는 나</span>
-            <strong>첫인상은 이렇습니다</strong>
+            <strong>첫인상은 이래요</strong>
             <p>{record.outerImpression}</p>
           </article>
           <article>
@@ -393,7 +411,7 @@ export function FaceReadingResultPage() {
       </div>
 
       <p className="result-disclaimer">
-        이 결과는 과학적·의학적 판단을 제공하지 않습니다.
+        이 결과는 과학적·의학적 판단을 제공하지 않아요.
       </p>
     </div>
   )
