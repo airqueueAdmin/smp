@@ -10,6 +10,10 @@ import {
 import { trackEvent, trackScreen } from '../../lib/analytics'
 import { DEMO_FACE_IMAGE_URI } from '../home/HomePage'
 import {
+  completeDailyAction,
+  getDailyActionStats,
+} from './engagement'
+import {
   createFaceReading,
   FaceReadingRecord,
   getFaceReadingById,
@@ -63,6 +67,7 @@ export function FaceReadingResultPage() {
   const [shareMessage, setShareMessage] = useState('')
   const [rewardMessage, setRewardMessage] = useState('')
   const [detailUnlocks, setDetailUnlocks] = useState(getDetailUnlocks)
+  const [dailyActionStats, setDailyActionStats] = useState(getDailyActionStats)
   const state = (location.state ?? {}) as ResultLocationState
   const isDemoPreview = searchParams.get('preview') === 'demo'
   const resultImageUri = state.imageUri ?? (isDemoPreview ? DEMO_FACE_IMAGE_URI : '')
@@ -100,19 +105,70 @@ export function FaceReadingResultPage() {
       return
     }
 
+    const fallbackLink = `${window.location.origin}/?referrer=share`
+    const message = `제 관상은 ‘${record.title}’, 얼굴 기운은 ${record.totalScore}점이래요. 돌려 말하지 않는 관상 결과도 확인해 보세요.`
+
     try {
       trackEvent('face_reading_share_start', { reading_type: record.title })
       const link = await getTossShareLink(`intoss://${APP_NAME}/?referrer=share`)
       await share({
-        message: `제 관상은 ‘${record.title}’, 얼굴 기운은 ${record.totalScore}점이래요. 돌려 말하지 않는 관상 결과도 확인해 보세요. ${link}`,
+        message: `${message} ${link}`,
       })
       setShareMessage('공유 화면을 열었어요.')
-      trackEvent('face_reading_share_complete', { reading_type: record.title })
+      trackEvent('face_reading_share_complete', {
+        reading_type: record.title,
+        channel: 'toss',
+      })
+      return
     } catch (error) {
+      console.warn('토스 공유를 사용할 수 없어 기본 공유로 전환해요:', error)
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: '진짜 내 관상',
+          text: message,
+          url: fallbackLink,
+        })
+        setShareMessage('공유 화면을 열었어요.')
+        trackEvent('face_reading_share_complete', {
+          reading_type: record.title,
+          channel: 'web',
+        })
+        return
+      }
+
+      await navigator.clipboard.writeText(`${message} ${fallbackLink}`)
+      setShareMessage('친구에게 보낼 문구와 링크를 복사했어요.')
+      trackEvent('face_reading_share_complete', {
+        reading_type: record.title,
+        channel: 'clipboard',
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setShareMessage('공유를 취소했어요.')
+        return
+      }
+
       console.error('관상 결과 공유에 실패했어요:', error)
       setShareMessage('지금은 공유할 수 없어요. 잠시 후 다시 시도해 주세요.')
       trackEvent('face_reading_share_failed')
     }
+  }
+
+  function handleDailyActionComplete() {
+    if (!record || dailyActionStats.completedToday) {
+      return
+    }
+
+    const nextStats = completeDailyAction(record.id)
+    setDailyActionStats(nextStats)
+    trackEvent('face_daily_action_complete', {
+      streak: nextStats.streak,
+      reading_type: record.title,
+      entry_path: 'result',
+    })
   }
 
   async function handleRewardedDetail() {
@@ -217,6 +273,33 @@ export function FaceReadingResultPage() {
         <div className="result-keywords">
           {record.keywords.map((keyword) => <span key={keyword}>#{keyword}</span>)}
         </div>
+        <div className="result-hero-actions">
+          <button type="button" onClick={() => void handleShare()}>
+            <span aria-hidden="true">↗</span>
+            친구에게 결과 보내기
+          </button>
+          <Link to="/">내 얼굴도 다시 보기</Link>
+        </div>
+        {shareMessage ? <p className="result-hero__message" role="status">{shareMessage}</p> : null}
+      </section>
+
+      <section className={dailyActionStats.completedToday ? 'result-daily-action is-complete' : 'result-daily-action'}>
+        <div className="result-daily-action__heading">
+          <span aria-hidden="true">行</span>
+          <div>
+            <small>오늘의 한 수</small>
+            <strong>{dailyActionStats.completedToday ? '오늘 실천을 기록했어요' : '결과를 행동으로 바꿔보세요'}</strong>
+          </div>
+          <em>{dailyActionStats.streak}일</em>
+        </div>
+        <p>{record.resetAction}</p>
+        <button
+          type="button"
+          onClick={handleDailyActionComplete}
+          disabled={dailyActionStats.completedToday}
+        >
+          {dailyActionStats.completedToday ? '완료 · 내일 이어가기' : '실천 완료하고 연속 기록 시작'}
+        </button>
       </section>
 
       <section className="result-section blunt-report-section">
@@ -407,7 +490,6 @@ export function FaceReadingResultPage() {
           친구에게 결과 공유하기
         </button>
         <Link className="subtle-button" to="/">다른 사진으로 다시 보기</Link>
-        {shareMessage ? <p role="status">{shareMessage}</p> : null}
       </div>
 
       <p className="result-disclaimer">

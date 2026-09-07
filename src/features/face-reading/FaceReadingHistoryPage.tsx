@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { trackScreen } from '../../lib/analytics'
+import { getDailyActionStats } from './engagement'
 import { getFaceReadingHistory } from './storage'
 
 export function FaceReadingHistoryPage() {
   const location = useLocation()
   const [history] = useState(() => getFaceReadingHistory())
+  const [dailyActionStats] = useState(getDailyActionStats)
 
   useEffect(() => {
     trackScreen('face_reading_history_screen', { result_count: history.length })
@@ -18,6 +20,20 @@ export function FaceReadingHistoryPage() {
         <span className="section-kicker">MY FACE RECORD</span>
         <h1>나의 관상 기록</h1>
         <p>사진은 남기지 않고 결과 요약만 이 기기에 보관해요.</p>
+        <div className="history-stats">
+          <div>
+            <strong>{history.length}</strong>
+            <span>누적 관상</span>
+          </div>
+          <div>
+            <strong>{dailyActionStats.streak}</strong>
+            <span>연속 실천</span>
+          </div>
+          <div>
+            <strong>{dailyActionStats.totalDays}</strong>
+            <span>완료한 날</span>
+          </div>
+        </div>
       </section>
 
       {history.length ? (

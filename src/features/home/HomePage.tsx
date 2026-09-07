@@ -8,12 +8,21 @@ import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { AD_GROUP_IDS, useFullScreenAd } from '../../lib/ads'
-import { trackEvent, trackScreen } from '../../lib/analytics'
+import {
+  getAcquisitionReferrer,
+  trackEvent,
+  trackImpression,
+  trackScreen,
+} from '../../lib/analytics'
 import {
   createFaceReading,
   getFaceReadingHistory,
   saveFaceReading,
 } from '../face-reading/storage'
+import {
+  completeDailyAction,
+  getDailyActionStats,
+} from '../face-reading/engagement'
 
 type HomeStep = 'home' | 'guide' | 'review'
 
@@ -87,6 +96,8 @@ function FaceSymbol() {
 export function HomePage() {
   const navigate = useNavigate()
   const fallbackInputRef = useRef<HTMLInputElement | null>(null)
+  const acquisitionReferrer = getAcquisitionReferrer()
+  const isSharedEntry = acquisitionReferrer === 'share'
   const [step, setStep] = useState<HomeStep>(() =>
     new URLSearchParams(window.location.search).get('preview') === 'guide' ? 'guide' : 'home',
   )
@@ -96,6 +107,7 @@ export function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [cameraMessage, setCameraMessage] = useState('')
   const [recentResult] = useState(() => getFaceReadingHistory()[0] ?? null)
+  const [dailyActionStats, setDailyActionStats] = useState(getDailyActionStats)
   const interstitialAd = useFullScreenAd(
     AD_GROUP_IDS.interstitial,
     step === 'review' && Boolean(capturedImageUri),
@@ -104,14 +116,32 @@ export function HomePage() {
   useEffect(() => {
     trackScreen('face_reading_home_screen', {
       has_previous_result: Boolean(recentResult),
+      is_shared_entry: isSharedEntry,
     })
-  }, [recentResult])
+
+    if (isSharedEntry) {
+      trackImpression('face_shared_entry_seen')
+    }
+  }, [isSharedEntry, recentResult])
 
   function openGuide() {
     setCameraMessage('')
     setStep('guide')
     trackEvent('face_reading_start')
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function handleDailyActionComplete() {
+    if (!recentResult || dailyActionStats.completedToday) {
+      return
+    }
+
+    const nextStats = completeDailyAction(recentResult.id)
+    setDailyActionStats(nextStats)
+    trackEvent('face_daily_action_complete', {
+      streak: nextStats.streak,
+      reading_type: recentResult.title,
+    })
   }
 
   async function handleNativeCamera() {
@@ -273,6 +303,12 @@ export function HomePage() {
           돌아가기
         </button>
 
+        <div className="funnel-progress" aria-label="관상 보기 진행 단계">
+          <span className="is-active"><i>1</i>사진 준비</span>
+          <b aria-hidden="true" />
+          <span><i>2</i>결과 확인</span>
+        </div>
+
         <section className="guide-heading">
           <span className="section-kicker">촬영 가이드</span>
           <h1>얼굴이 잘 보이게<br />한 장만 찍어주세요</h1>
@@ -327,6 +363,7 @@ export function HomePage() {
             <span className="button-camera-icon" aria-hidden="true" />
             {isCameraPending ? '기본 카메라 여는 중...' : '기본 카메라로 촬영하기'}
           </button>
+          <p className="action-time-hint">촬영 후 약 30초면 결과를 확인해요</p>
           <button
             type="button"
             className="subtle-button"
@@ -362,6 +399,12 @@ export function HomePage() {
           <span aria-hidden="true">←</span>
           다시 선택
         </button>
+
+        <div className="funnel-progress" aria-label="관상 보기 진행 단계">
+          <span className="is-complete"><i>✓</i>사진 준비</span>
+          <b className="is-complete" aria-hidden="true" />
+          <span className="is-active"><i>2</i>결과 확인</span>
+        </div>
 
         <section className="review-heading">
           <span className="section-kicker">사진 확인</span>
@@ -412,9 +455,23 @@ export function HomePage() {
     <div className="face-page face-home-page">
       <section className="home-hero">
         <div className="home-hero__copy">
-          <span className="hero-label"><i aria-hidden="true" /> 돌려 말하지 않는 얼굴 풀이</span>
-          <h1>좋은 말만 하지 않는<br /><em>진짜 내 관상</em></h1>
-          <p>남이 보는 나, 숨겨둔 속마음, 지금 들어온 운까지 핵심만 짚어드려요.</p>
+          {isSharedEntry ? (
+            <div className="shared-entry-banner">
+              <span aria-hidden="true">↗</span>
+              친구가 본 관상, 이제 내 얼굴로 확인해요
+            </div>
+          ) : null}
+          <span className="hero-label"><i aria-hidden="true" /> 사진 한 장 · 약 30초</span>
+          <h1>
+            {isSharedEntry ? '친구 결과가 궁금했다면' : '좋은 말만 하지 않는'}
+            <br />
+            <em>{isSharedEntry ? '이제 내 차례' : '진짜 내 관상'}</em>
+          </h1>
+          <p>첫인상부터 속마음, 재물·인연·성취운까지 얼굴에 담긴 핵심만 솔직하게 풀어드려요.</p>
+          <div className="hero-proof-row" aria-label="서비스 특징">
+            <span><i aria-hidden="true">✓</i> 회원가입 없이</span>
+            <span><i aria-hidden="true">✓</i> 결과는 내 기기에만</span>
+          </div>
         </div>
 
         <div className="home-hero__visual">
@@ -426,7 +483,7 @@ export function HomePage() {
         </div>
 
         <button type="button" className="hero-primary-button" onClick={openGuide}>
-          내 얼굴, 솔직하게 보기
+          {isSharedEntry ? '나도 30초 만에 보기' : '내 얼굴, 솔직하게 보기'}
           <span aria-hidden="true">→</span>
         </button>
         <p className="privacy-caption">
@@ -435,11 +492,49 @@ export function HomePage() {
         </p>
       </section>
 
+      {recentResult ? (
+        <section className="daily-action-card">
+          <div className="daily-action-card__top">
+            <div>
+              <span className="section-kicker">오늘의 얼굴 루틴</span>
+              <h2>{dailyActionStats.completedToday ? '오늘도 한 수 완료했어요' : '오늘은 이것 하나만 해볼까요?'}</h2>
+            </div>
+            <span className="daily-action-card__streak">
+              <strong>{dailyActionStats.streak}</strong>일 연속
+            </span>
+          </div>
+          <p className="daily-action-card__mission">{recentResult.resetAction}</p>
+          <div className="daily-week" aria-label="최근 7일 실천 기록">
+            {dailyActionStats.week.map((day) => (
+              <span key={day.date} className={day.completed ? 'is-complete' : ''}>
+                <i aria-hidden="true">{day.completed ? '✓' : ''}</i>
+                {day.label}
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="daily-action-card__button"
+            onClick={handleDailyActionComplete}
+            disabled={dailyActionStats.completedToday}
+          >
+            {dailyActionStats.completedToday ? '실천 완료 · 내일 또 만나요' : '오늘의 한 수 실천 완료'}
+          </button>
+          <button
+            type="button"
+            className="daily-action-card__result-link"
+            onClick={() => navigate(`/result?id=${recentResult.id}`)}
+          >
+            최근 관상 다시 보기 <span aria-hidden="true">→</span>
+          </button>
+        </section>
+      ) : null}
+
       <section className="fortune-preview-section">
         <div className="section-title-row">
           <div>
-            <span className="section-kicker">한눈에 보는 관상</span>
-            <h2>이 네 가지만 보면 돼요</h2>
+            <span className="section-kicker">30초 뒤 받는 결과</span>
+            <h2>내 얼굴에서 네 가지를 읽어요</h2>
           </div>
           <span className="mini-seal" aria-hidden="true">相</span>
         </div>
@@ -467,25 +562,6 @@ export function HomePage() {
           </article>
         </div>
       </section>
-
-      {recentResult ? (
-        <section className="recent-result-card">
-          <div className="recent-result-card__top">
-            <span className="section-kicker">최근 관상</span>
-            <time>{new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(new Date(recentResult.createdAt))}</time>
-          </div>
-          <div className="recent-result-card__body">
-            <span className="recent-result-card__score">{recentResult.totalScore}</span>
-            <div>
-              <strong>{recentResult.title}</strong>
-              <p>{recentResult.keywords.slice(0, 3).map((keyword) => `#${keyword}`).join('  ')}</p>
-            </div>
-          </div>
-          <button type="button" onClick={() => navigate(`/result?id=${recentResult.id}`)}>
-            결과 다시 보기 <span aria-hidden="true">→</span>
-          </button>
-        </section>
-      ) : null}
 
       <section className="how-it-works">
         <span className="section-kicker">HOW IT WORKS</span>
