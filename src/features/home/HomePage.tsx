@@ -5,7 +5,7 @@ import {
   openCamera,
 } from '@apps-in-toss/web-framework'
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { AD_GROUP_IDS, useFullScreenAd } from '../../lib/ads'
 import {
@@ -25,6 +25,17 @@ import {
 } from '../face-reading/engagement'
 
 type HomeStep = 'home' | 'guide' | 'review'
+type HomeNavigationState = { imageUri?: string }
+
+function getHomeStep(search: string): HomeStep {
+  const params = new URLSearchParams(search)
+  const step = params.get('step')
+  if (!step && params.get('preview') === 'guide') {
+    return 'guide'
+  }
+
+  return step === 'guide' || step === 'review' ? step : 'home'
+}
 
 export const DEMO_FACE_IMAGE_URI = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 560">
@@ -94,14 +105,15 @@ function FaceSymbol() {
 }
 
 export function HomePage() {
+  const location = useLocation()
   const navigate = useNavigate()
   const fallbackInputRef = useRef<HTMLInputElement | null>(null)
   const acquisitionReferrer = getAcquisitionReferrer()
   const isSharedEntry = acquisitionReferrer === 'share'
-  const [step, setStep] = useState<HomeStep>(() =>
-    new URLSearchParams(window.location.search).get('preview') === 'guide' ? 'guide' : 'home',
+  const step = getHomeStep(location.search)
+  const [capturedImageUri, setCapturedImageUri] = useState(
+    () => (location.state as HomeNavigationState | null)?.imageUri ?? '',
   )
-  const [capturedImageUri, setCapturedImageUri] = useState('')
   const [isCameraPending, setIsCameraPending] = useState(false)
   const [isAlbumPending, setIsAlbumPending] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -112,6 +124,20 @@ export function HomePage() {
     AD_GROUP_IDS.interstitial,
     step === 'review' && Boolean(capturedImageUri),
   )
+
+  function navigateToStep(nextStep: HomeStep, state?: HomeNavigationState) {
+    const params = new URLSearchParams(location.search)
+    if (nextStep === 'home') {
+      params.delete('step')
+    } else {
+      params.set('step', nextStep)
+    }
+
+    navigate(
+      { pathname: '/', search: params.toString() ? `?${params.toString()}` : '' },
+      state ? { state } : undefined,
+    )
+  }
 
   useEffect(() => {
     trackScreen('face_reading_home_screen', {
@@ -126,7 +152,7 @@ export function HomePage() {
 
   function openGuide() {
     setCameraMessage('')
-    setStep('guide')
+    navigateToStep('guide')
     trackEvent('face_reading_start')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -175,7 +201,7 @@ export function HomePage() {
         : `data:image/jpeg;base64,${response.dataUri}`
 
       setCapturedImageUri(imageUri)
-      setStep('review')
+      navigateToStep('review', { imageUri })
       trackEvent('face_camera_capture_complete')
       window.scrollTo({ top: 0 })
     } catch (error) {
@@ -231,7 +257,7 @@ export function HomePage() {
         : `data:image/jpeg;base64,${photo.dataUri}`
 
       setCapturedImageUri(imageUri)
-      setStep('review')
+      navigateToStep('review', { imageUri })
       trackEvent('face_image_selected', { source: 'native_album' })
       window.scrollTo({ top: 0 })
     } catch (error) {
@@ -261,7 +287,7 @@ export function HomePage() {
 
       setCapturedImageUri(reader.result)
       setCameraMessage('')
-      setStep('review')
+      navigateToStep('review', { imageUri: reader.result })
       trackEvent('face_image_selected')
       window.scrollTo({ top: 0 })
     }
@@ -298,11 +324,6 @@ export function HomePage() {
   if (step === 'guide') {
     return (
       <div className="face-page face-guide-page">
-        <button type="button" className="text-back-button" onClick={() => setStep('home')}>
-          <span aria-hidden="true">←</span>
-          돌아가기
-        </button>
-
         <div className="funnel-progress" aria-label="관상 보기 진행 단계">
           <span className="is-active"><i>1</i>사진 준비</span>
           <b aria-hidden="true" />
@@ -388,18 +409,6 @@ export function HomePage() {
   if (step === 'review') {
     return (
       <div className="face-page photo-review-page">
-        <button
-          type="button"
-          className="text-back-button"
-          onClick={() => {
-            setCapturedImageUri('')
-            setStep('guide')
-          }}
-        >
-          <span aria-hidden="true">←</span>
-          다시 선택
-        </button>
-
         <div className="funnel-progress" aria-label="관상 보기 진행 단계">
           <span className="is-complete"><i>✓</i>사진 준비</span>
           <b className="is-complete" aria-hidden="true" />
@@ -441,7 +450,10 @@ export function HomePage() {
           <button
             type="button"
             className="subtle-button"
-            onClick={() => void handleNativeCamera()}
+            onClick={() => {
+              setCapturedImageUri('')
+              navigateToStep('guide')
+            }}
             disabled={isAnalyzing || isCameraPending}
           >
             다시 촬영하기
@@ -586,6 +598,10 @@ export function HomePage() {
         <span aria-hidden="true">i</span>
         <p>관상 결과는 전통적인 관상 해석을 바탕으로 만든 재미용 콘텐츠예요. 중요한 판단의 근거로 사용하지 마세요.</p>
       </aside>
+
+      <Link className="history-cta" to="/history">
+        나의 관상 기록 보기 <span aria-hidden="true">→</span>
+      </Link>
     </div>
   )
 }

@@ -20,6 +20,11 @@ export default defineConfig({
     pullToRefreshEnabled: false,
     overScrollMode: 'never',
   },
+  navigationBar: {
+    withBackButton: true,
+    withHomeButton: false,
+    withTitle: true,
+  },
   permissions: [
     { name: 'camera', access: 'access' },
     { name: 'photos', access: 'read' },

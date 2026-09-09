@@ -19,8 +19,9 @@ const TEST_AD_GROUP_IDS = {
   rewarded: 'ait-ad-test-rewarded-id',
 } as const
 
-const useTestAds =
-  import.meta.env.DEV || import.meta.env.VITE_ADS_TEST_MODE === 'true'
+// Test ad groups are intentionally limited to development builds. A release
+// build must always use the live groups, even if a local env file is copied.
+const useTestAds = import.meta.env.DEV
 
 export const AD_GROUP_IDS = useTestAds
   ? TEST_AD_GROUP_IDS
