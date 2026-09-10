@@ -8,6 +8,10 @@ import {
   useFullScreenAd,
 } from '../../lib/ads'
 import { trackEvent, trackScreen } from '../../lib/analytics'
+import {
+  getPersistentItem,
+  setPersistentItem,
+} from '../../lib/persistentStorage'
 import { DEMO_FACE_IMAGE_URI } from '../home/HomePage'
 import {
   completeDailyAction,
@@ -31,7 +35,7 @@ type ResultLocationState = {
 function getDetailUnlocks() {
   try {
     const value: unknown = JSON.parse(
-      window.localStorage.getItem(DETAIL_UNLOCKS_KEY) ?? '[]',
+      getPersistentItem(DETAIL_UNLOCKS_KEY) ?? '[]',
     )
 
     return Array.isArray(value)
@@ -199,7 +203,7 @@ export function FaceReadingResultPage() {
 
     if (adResult === 'rewarded') {
       const nextUnlocks = Array.from(new Set([...detailUnlocks, record.id]))
-      window.localStorage.setItem(
+      setPersistentItem(
         DETAIL_UNLOCKS_KEY,
         JSON.stringify(nextUnlocks),
       )

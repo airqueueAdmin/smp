@@ -5,10 +5,10 @@
   "description": "Apps in Toss face-reading mini app using a single native-camera photo.",
   "type": "module",
   "scripts": {
-    "dev": "granite dev",
+    "dev": "vite --port 5173",
     "dev:web": "vite",
     "dev:server": "node server/smart-message-server.mjs",
-    "build": "ait build",
+    "build": "vite build && ait build",
     "build:web": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
@@ -16,14 +16,14 @@
     "verify": "npm run typecheck && npm run check:server && npm run build"
   },
   "dependencies": {
-    "@apps-in-toss/web-bridge": "^2.10.7",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
-    "@apps-in-toss/cli": "^2.10.7",
-    "@apps-in-toss/web-framework": "^2.10.7",
+    "@apps-in-toss/cli": "^3.4.0",
+    "@apps-in-toss/devtools": "^3.2.0",
+    "@apps-in-toss/web-framework": "^3.4.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

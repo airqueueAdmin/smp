@@ -1,3 +1,8 @@
+import {
+  getPersistentItem,
+  setPersistentItem,
+} from '../../lib/persistentStorage'
+
 export type SuncareRecordSource = 'home' | 'start' | 'reapply'
 
 export type SuncareRecord = {
@@ -27,12 +32,12 @@ function isSuncareRecord(value: unknown): value is SuncareRecord {
 }
 
 export function getLastAppliedAt() {
-  const value = window.localStorage.getItem(LAST_APPLIED_AT_KEY) ?? ''
+  const value = getPersistentItem(LAST_APPLIED_AT_KEY) ?? ''
   return value && !Number.isNaN(new Date(value).getTime()) ? value : ''
 }
 
 export function getSuncareHistory() {
-  const raw = window.localStorage.getItem(HISTORY_KEY)
+  const raw = getPersistentItem(HISTORY_KEY)
   if (!raw) {
     return []
   }
@@ -64,11 +69,11 @@ export function recordSuncareApplication({
     MAX_HISTORY_LENGTH,
   )
 
-  window.localStorage.setItem(LAST_APPLIED_AT_KEY, appliedAt)
-  window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  setPersistentItem(LAST_APPLIED_AT_KEY, appliedAt)
+  setPersistentItem(HISTORY_KEY, JSON.stringify(history))
 
   if (ownerKey) {
-    window.localStorage.setItem(LAST_APPLIED_AT_OWNER_KEY, ownerKey)
+    setPersistentItem(LAST_APPLIED_AT_OWNER_KEY, ownerKey)
   }
 
   window.dispatchEvent(new CustomEvent('summer-ping:recorded', { detail: record }))

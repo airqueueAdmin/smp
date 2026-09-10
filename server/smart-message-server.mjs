@@ -26,7 +26,7 @@ const APP_NAME = process.env.APPS_IN_TOSS_APP_NAME ?? 'summer-ping'
 const ALLOWED_ORIGINS = new Set(
   (
     process.env.ALLOWED_ORIGINS ??
-    `http://localhost:5173,http://127.0.0.1:5173,https://${APP_NAME}.private-apps.tossmini.com,https://${APP_NAME}.apps.tossmini.com`
+    `http://localhost:5173,http://127.0.0.1:5173,https://${APP_NAME}.private-web.tossmini.com,https://${APP_NAME}.web.tossmini.com,https://${APP_NAME}.private-apps.tossmini.com,https://${APP_NAME}.apps.tossmini.com`
   )
     .split(',')
     .map((origin) => origin.trim())

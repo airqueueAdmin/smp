@@ -1,3 +1,8 @@
+import {
+  getPersistentItem,
+  setPersistentItem,
+} from '../../lib/persistentStorage'
+
 export type FortuneCategory = {
   key: 'wealth' | 'relationship' | 'achievement'
   label: string
@@ -421,7 +426,7 @@ export function createFaceReading(imageUri: string): FaceReadingRecord {
 }
 
 export function getFaceReadingHistory() {
-  const raw = window.localStorage.getItem(HISTORY_KEY)
+  const raw = getPersistentItem(HISTORY_KEY)
   if (!raw) {
     return []
   }
@@ -449,6 +454,6 @@ export function saveFaceReading(record: FaceReadingRecord) {
     ...getFaceReadingHistory().filter((item) => item.id !== record.id),
   ].slice(0, MAX_HISTORY_LENGTH)
 
-  window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  setPersistentItem(HISTORY_KEY, JSON.stringify(history))
   window.dispatchEvent(new CustomEvent('gwansang-log:reading-saved', { detail: record }))
 }

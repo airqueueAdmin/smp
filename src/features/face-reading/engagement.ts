@@ -1,3 +1,8 @@
+import {
+  getPersistentItem,
+  setPersistentItem,
+} from '../../lib/persistentStorage'
+
 export type DailyActionStats = {
   completedToday: boolean
   streak: number
@@ -49,7 +54,7 @@ function isDailyActionEntry(value: unknown): value is DailyActionEntry {
 function getEntries() {
   try {
     const value: unknown = JSON.parse(
-      window.localStorage.getItem(DAILY_ACTIONS_KEY) ?? '[]',
+      getPersistentItem(DAILY_ACTIONS_KEY) ?? '[]',
     )
 
     return Array.isArray(value)
@@ -105,7 +110,7 @@ export function completeDailyAction(recordId: string, now = new Date()) {
     .sort((a, b) => fromDateKey(b.date).getTime() - fromDateKey(a.date).getTime())
     .slice(0, MAX_DAILY_ACTIONS)
 
-  window.localStorage.setItem(DAILY_ACTIONS_KEY, JSON.stringify(entries))
+  setPersistentItem(DAILY_ACTIONS_KEY, JSON.stringify(entries))
   window.dispatchEvent(new CustomEvent('gwansang-log:daily-action-completed'))
 
   return getDailyActionStats(now)
