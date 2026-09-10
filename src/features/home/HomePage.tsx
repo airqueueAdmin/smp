@@ -434,6 +434,13 @@ export function HomePage() {
         </div>
 
         <div className="sticky-action-area">
+          <div className="ad-disclosure" role="note" aria-label="광고 안내">
+            <span className="ad-disclosure__icon" aria-hidden="true">▶</span>
+            <div>
+              <strong>결과를 보기 전에 짧은 광고가 표시돼요</strong>
+              <p>광고가 끝나면 바로 내 관상 결과를 확인할 수 있어요.</p>
+            </div>
+          </div>
           <button
             type="button"
             className="primary-button"
@@ -443,9 +450,9 @@ export function HomePage() {
             {isAnalyzing ? (
               <>
                 <span className="button-spinner" aria-hidden="true" />
-                얼굴의 기운을 읽는 중...
+                광고 후 결과를 준비하는 중...
               </>
-            ) : '이 사진으로 관상 보기'}
+            ) : '광고 확인 후 결과 보기'}
           </button>
           <button
             type="button"
