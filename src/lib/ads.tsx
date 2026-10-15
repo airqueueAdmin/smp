@@ -23,9 +23,29 @@ const TEST_AD_GROUP_IDS = {
 // build must always use the live groups, even if a local env file is copied.
 const useTestAds = import.meta.env.DEV
 
+const INTERSTITIAL_COOLDOWN_KEY = 'gwansang-log:interstitial-last-shown'
+const INTERSTITIAL_COOLDOWN_MS = 90_000
+
 export const AD_GROUP_IDS = useTestAds
   ? TEST_AD_GROUP_IDS
   : LIVE_AD_GROUP_IDS
+
+export function canShowInterstitial() {
+  try {
+    const lastShownAt = Number(sessionStorage.getItem(INTERSTITIAL_COOLDOWN_KEY))
+    return !lastShownAt || Date.now() - lastShownAt >= INTERSTITIAL_COOLDOWN_MS
+  } catch {
+    return true
+  }
+}
+
+export function markInterstitialShown() {
+  try {
+    sessionStorage.setItem(INTERSTITIAL_COOLDOWN_KEY, String(Date.now()))
+  } catch {
+    // Session storage is optional in preview and restricted webviews.
+  }
+}
 
 export type FullScreenAdStatus =
   | 'idle'

@@ -7,7 +7,12 @@ import {
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
-import { AD_GROUP_IDS, useFullScreenAd } from '../../lib/ads'
+import {
+  AD_GROUP_IDS,
+  canShowInterstitial,
+  markInterstitialShown,
+  useFullScreenAd,
+} from '../../lib/ads'
 import {
   getAcquisitionReferrer,
   trackEvent,
@@ -26,6 +31,29 @@ import {
 
 type HomeStep = 'home' | 'guide' | 'review'
 type HomeNavigationState = { imageUri?: string }
+type CuriosityKey = 'impression' | 'mind' | 'flow'
+
+const CURIOSITY_CARDS: Record<CuriosityKey, {
+  label: string
+  title: string
+  copy: string
+}> = {
+  impression: {
+    label: '첫인상',
+    title: '사람들은 나를 어떻게 기억할까?',
+    copy: '눈매와 표정에서 드러나는 첫 3초의 인상을 읽어요.',
+  },
+  mind: {
+    label: '속마음',
+    title: '겉으로 보이는 모습이 전부일까?',
+    copy: '말보다 먼저 움직이는 내 안의 기준과 반응을 살펴봐요.',
+  },
+  flow: {
+    label: '운의 흐름',
+    title: '지금 내게 열린 흐름은 뭘까?',
+    copy: '재물·인연·성취 중 지금 힘을 받는 흐름을 비교해요.',
+  },
+}
 
 function getHomeStep(search: string): HomeStep {
   const params = new URLSearchParams(search)
@@ -120,6 +148,7 @@ export function HomePage() {
   const [cameraMessage, setCameraMessage] = useState('')
   const [recentResult] = useState(() => getFaceReadingHistory()[0] ?? null)
   const [dailyActionStats, setDailyActionStats] = useState(getDailyActionStats)
+  const [curiosityKey, setCuriosityKey] = useState<CuriosityKey>('impression')
   const interstitialAd = useFullScreenAd(
     AD_GROUP_IDS.interstitial,
     step === 'review' && Boolean(capturedImageUri),
@@ -155,6 +184,11 @@ export function HomePage() {
     navigateToStep('guide')
     trackEvent('face_reading_start')
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function chooseCuriosity(nextKey: CuriosityKey) {
+    setCuriosityKey(nextKey)
+    trackEvent('face_curiosity_topic_selected', { topic: nextKey })
   }
 
   function handleDailyActionComplete() {
@@ -308,9 +342,16 @@ export function HomePage() {
     saveFaceReading(result)
 
     await new Promise((resolve) => window.setTimeout(resolve, 1200))
-    const adResult = await interstitialAd.show()
+    const shouldShowInterstitial = canShowInterstitial()
+    const adResult = shouldShowInterstitial
+      ? await interstitialAd.show()
+      : 'unavailable'
+    if (adResult !== 'unavailable') {
+      markInterstitialShown()
+    }
     trackEvent('face_result_interstitial_complete', {
       ad_result: adResult,
+      skipped_cooldown: !shouldShowInterstitial,
     })
 
     navigate('/result', {
@@ -434,16 +475,22 @@ export function HomePage() {
         </div>
 
         <div className="sticky-action-area">
-          <div className="ad-disclosure" role="note" aria-label="광고 안내">
-            <span className="ad-disclosure__icon" aria-hidden="true">▶</span>
+          <div
+            id="result-ad-disclosure"
+            className="ad-disclosure"
+            role="note"
+            aria-label="광고 안내"
+          >
+            <span className="ad-disclosure__icon" aria-hidden="true">Ad</span>
             <div>
-              <strong>결과를 보기 전에 짧은 광고가 표시돼요</strong>
-              <p>광고가 끝나면 바로 내 관상 결과를 확인할 수 있어요.</p>
+              <strong>결과 화면으로 넘어갈 때 광고가 표시될 수 있어요</strong>
+              <p>광고가 끝나면 바로 관상 결과로 돌아와요. 광고가 없어도 분석은 계속돼요.</p>
             </div>
           </div>
           <button
             type="button"
             className="primary-button"
+            aria-describedby="result-ad-disclosure"
             onClick={() => void handleAnalyze()}
             disabled={isAnalyzing}
           >
@@ -452,7 +499,7 @@ export function HomePage() {
                 <span className="button-spinner" aria-hidden="true" />
                 광고 후 결과를 준비하는 중...
               </>
-            ) : '광고 확인 후 결과 보기'}
+            ) : '관상 결과 확인하기'}
           </button>
           <button
             type="button"
@@ -548,6 +595,36 @@ export function HomePage() {
           </button>
         </section>
       ) : null}
+
+      <section className="curiosity-panel" aria-labelledby="curiosity-title">
+        <div className="curiosity-panel__heading">
+          <div>
+            <span className="section-kicker">오늘 가장 궁금한 것</span>
+            <h2 id="curiosity-title">어디부터 볼까요?</h2>
+          </div>
+          <span className="curiosity-panel__spark" aria-hidden="true">✦</span>
+        </div>
+        <div className="curiosity-tabs" role="tablist" aria-label="관상 주제 선택">
+          {(Object.keys(CURIOSITY_CARDS) as CuriosityKey[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={curiosityKey === key}
+              className={curiosityKey === key ? 'is-active' : ''}
+              onClick={() => chooseCuriosity(key)}
+            >
+              {CURIOSITY_CARDS[key].label}
+            </button>
+          ))}
+        </div>
+        <div className="curiosity-answer" role="tabpanel">
+          <span className="curiosity-answer__eyebrow">{CURIOSITY_CARDS[curiosityKey].label} 미리보기</span>
+          <strong>{CURIOSITY_CARDS[curiosityKey].title}</strong>
+          <p>{CURIOSITY_CARDS[curiosityKey].copy}</p>
+          <button type="button" onClick={openGuide}>내 얼굴로 확인하기 <span aria-hidden="true">→</span></button>
+        </div>
+      </section>
 
       <section className="fortune-preview-section">
         <div className="section-title-row">
