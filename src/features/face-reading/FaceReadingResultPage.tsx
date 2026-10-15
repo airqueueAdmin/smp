@@ -1,5 +1,5 @@
 import { getTossShareLink, share } from '@apps-in-toss/web-framework'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import {
@@ -72,6 +72,7 @@ export function FaceReadingResultPage() {
   const [rewardMessage, setRewardMessage] = useState('')
   const [detailUnlocks, setDetailUnlocks] = useState(getDetailUnlocks)
   const [dailyActionStats, setDailyActionStats] = useState(getDailyActionStats)
+  const resultViewEventKeyRef = useRef('')
   const state = (location.state ?? {}) as ResultLocationState
   const isDemoPreview = searchParams.get('preview') === 'demo'
   const resultImageUri = state.imageUri ?? (isDemoPreview ? DEMO_FACE_IMAGE_URI : '')
@@ -102,7 +103,23 @@ export function FaceReadingResultPage() {
       reading_type: record?.title ?? 'empty',
       has_photo: Boolean(resultImageUri),
     })
-  }, [record?.title, resultImageUri])
+
+    if (!record) {
+      return
+    }
+
+    const resultViewEventKey = `${record.id}:${Boolean(resultImageUri)}`
+    if (resultViewEventKeyRef.current === resultViewEventKey) {
+      return
+    }
+
+    resultViewEventKeyRef.current = resultViewEventKey
+    trackEvent('face_reading_result_viewed', {
+      reading_type: record.title,
+      has_photo: Boolean(resultImageUri),
+      is_demo_preview: isDemoPreview,
+    })
+  }, [isDemoPreview, record, resultImageUri])
 
   async function handleShare() {
     if (!record) {
